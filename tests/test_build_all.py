@@ -31,6 +31,11 @@ def fake_pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
         datadump_dir = tmp_path
         build_output_dir = build_dir
         access_mysql_transfer_repo = tmp_path  # xlsx loader is patched out
+        # Phase 1.6: mariadb=None keeps the orchestrator on the
+        # Datadump-direct path that these tests are written against.
+        # Tests that exercise MariaDB explicitly set this to a real
+        # MariaDbConfig and patch `ensure_imported`.
+        mariadb = None
 
     monkeypatch.setattr(ba_mod, "load_config", lambda: _Cfg())
     monkeypatch.setattr(ba_mod, "find_latest_datadump", lambda _: fake_info)
@@ -478,6 +483,7 @@ def test_build_all_does_not_use_cache_when_output_path_changed(
         datadump_dir = tmp_path
         build_output_dir = new_build_dir
         access_mysql_transfer_repo = tmp_path
+        mariadb = None
 
     monkeypatch.setattr(ba_mod, "load_config", lambda: _AltCfg())
 
@@ -603,3 +609,108 @@ def test_refresh_all_succeeds_with_results(
     assert rc == 0
     assert "[up-to-date] ACCESS_TESTS_REPO" in out
     assert "[updated] AVALONIA_REPO" in out
+
+
+def test_build_all_uses_mariadb_when_configured(
+    fake_pipeline: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When `cfg.mariadb` is populated, the orchestrator calls
+    `mariadb.ensure_imported(cfg, info)` BEFORE the builders and passes
+    `source='mariadb'` down. The Datadump-direct path is bypassed."""
+    from cbdb_parity.config import MariaDbConfig
+    from cbdb_parity.mariadb import CacheStatus
+
+    # Reconfigure the fake load_config to return a config WITH mariadb set.
+    mariadb_cfg = MariaDbConfig(
+        host="localhost", port=3306, user="root", password="x",
+        database="cbdb_data", container_name="x",
+        force_reimport=False, auto_launch=False,
+    )
+
+    class _CfgWithMariadb:
+        datadump_dir = fake_pipeline.parent
+        build_output_dir = fake_pipeline.parent / "build"
+        access_mysql_transfer_repo = fake_pipeline.parent
+        mariadb = mariadb_cfg
+
+    monkeypatch.setattr(ba_mod, "load_config", lambda: _CfgWithMariadb())
+
+    # Capture the source= the helpers were called with.
+    calls: dict[str, str] = {}
+
+    def fake_build_sqlite_if_needed(*, source: str, **_kw: object) -> dict[str, object]:
+        calls["sqlite_source"] = source
+        return {"path": "x", "rows_inserted": 0, "tables_skipped": []}
+
+    def fake_build_mdb_if_needed(*, source: str, **_kw: object) -> dict[str, object]:
+        calls["mdb_source"] = source
+        return {"path": "y", "rows_inserted": 0, "tables_skipped": []}
+
+    monkeypatch.setattr(ba_mod, "_build_sqlite_if_needed", fake_build_sqlite_if_needed)
+    monkeypatch.setattr(ba_mod, "_build_mdb_if_needed", fake_build_mdb_if_needed)
+
+    # Capture ensure_imported invocations.
+    from datetime import UTC, datetime
+    imported_calls: list[tuple[object, object]] = []
+    def fake_ensure_imported(cfg: object, info: object) -> CacheStatus:
+        imported_calls.append((cfg, info))
+        return CacheStatus(
+            reused=False,
+            datadump_sha="deadbeef" * 8,
+            elapsed_seconds=42.0,
+            imported_at=datetime.now(UTC),
+        )
+    monkeypatch.setattr(ba_mod, "ensure_imported", fake_ensure_imported)
+
+    rc = build_all()
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert len(imported_calls) == 1, "ensure_imported must be called exactly once"
+    assert calls.get("sqlite_source") == "mariadb"
+    assert calls.get("mdb_source") == "mariadb"
+    assert "[mariadb] re-imported" in out
+
+
+def test_build_all_mariadb_failure_returns_1(
+    fake_pipeline: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A `MariaDbError` from `ensure_imported` aborts build_all with rc=1
+    and does NOT call either builder helper (no partial-write
+    cleanup on artifacts the run never touched)."""
+    from cbdb_parity.config import MariaDbConfig
+    from cbdb_parity.mariadb import MariaDbError
+
+    mariadb_cfg = MariaDbConfig(
+        host="localhost", port=3306, user="root", password="x",
+        database="cbdb_data", container_name="x",
+        force_reimport=False, auto_launch=False,
+    )
+
+    class _CfgWithMariadb:
+        datadump_dir = fake_pipeline.parent
+        build_output_dir = fake_pipeline.parent / "build"
+        access_mysql_transfer_repo = fake_pipeline.parent
+        mariadb = mariadb_cfg
+
+    monkeypatch.setattr(ba_mod, "load_config", lambda: _CfgWithMariadb())
+
+    def fake_ensure_imported(cfg: object, info: object) -> None:
+        raise MariaDbError("simulated MariaDB outage")
+    monkeypatch.setattr(ba_mod, "ensure_imported", fake_ensure_imported)
+
+    builder_calls: list[str] = []
+    monkeypatch.setattr(
+        ba_mod, "_build_sqlite_if_needed",
+        lambda **_kw: builder_calls.append("sqlite") or {},  # type: ignore[func-returns-value]
+    )
+    monkeypatch.setattr(
+        ba_mod, "_build_mdb_if_needed",
+        lambda **_kw: builder_calls.append("mdb") or {},  # type: ignore[func-returns-value]
+    )
+
+    rc = build_all()
+    assert rc == 1
+    assert builder_calls == [], "builders must not run after a MariaDB cache failure"

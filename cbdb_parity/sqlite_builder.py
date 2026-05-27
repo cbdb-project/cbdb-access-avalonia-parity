@@ -116,13 +116,35 @@ def build_sqlite(
     with_internal: bool = False,
     on_started: Callable[[], None] | None = None,
 ) -> BuildStats:
-    """Stream `dump_stream` through the parser, write `output_path`, return stats.
+    """Stream-source variant: parse `dump_stream` then call `build_sqlite_from_events`.
+
+    Retained for the Datadump-direct fallback path (`source='datadump'`
+    on the orchestrator). Per WORK_PLAN §4d the MariaDB cache path
+    becomes the default, and that path goes through
+    `build_sqlite_from_events` directly with a MariaDB-sourced
+    iterable. Shape / contract are otherwise identical.
+    """
+    return build_sqlite_from_events(
+        parse_dump(dump_stream),
+        output_path,
+        with_internal=with_internal,
+        on_started=on_started,
+    )
+
+
+def build_sqlite_from_events(
+    events: Iterable[TableSchema | Row],
+    output_path: Path,
+    *,
+    with_internal: bool = False,
+    on_started: Callable[[], None] | None = None,
+) -> BuildStats:
+    """Consume a TableSchema/Row event stream, write `output_path`, return stats.
 
     `output_path` is overwritten if it exists. The destination is opened
     with WAL disabled and synchronous=OFF for the duration of the bulk
     load — same trick mysqldump-to-sqlite tools use to avoid fsync-per-
-    transaction overhead on millions of rows. Both are restored to safe
-    values before close, so the resulting file is durable.
+    transaction overhead on millions of rows.
 
     `with_internal=False` (the default, matching Laravel's
     `--with-internal` flag default) skips tables whose name starts with
@@ -136,6 +158,10 @@ def build_sqlite(
     destination" (callback never fires, previous artifact still valid)
     from "build started writing then failed" (callback fired, partial
     output needs cleanup).
+
+    Events are typically produced either by
+    `cbdb_parity.mysqldump.parse_dump()` (Datadump-direct) or
+    `cbdb_parity.mariadb_source.iter_events()` (MariaDB cache path).
     """
     if output_path.exists():
         output_path.unlink()
@@ -158,7 +184,7 @@ def build_sqlite(
         conn.execute("PRAGMA temp_store = MEMORY")
         conn.execute("PRAGMA cache_size = -65536")  # 64 MiB cache (negative = KiB)
 
-        _drain(parse_dump(dump_stream), conn, stats, with_internal=with_internal)
+        _drain(events, conn, stats, with_internal=with_internal)
         conn.commit()
     finally:
         conn.close()

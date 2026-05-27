@@ -39,10 +39,12 @@ from cbdb_parity.datadump import (
     find_latest_datadump,
     open_dump_stream,
 )
-from cbdb_parity.mdb_builder import MdbBuilderError, build_mdb
+from cbdb_parity.mariadb import MariaDbError, ensure_imported
+from cbdb_parity.mariadb_source import iter_events as mariadb_iter_events
+from cbdb_parity.mdb_builder import MdbBuilderError, build_mdb, build_mdb_from_events
 from cbdb_parity.mysqldump import MysqlDumpError
 from cbdb_parity.refresh import RefreshError, refresh_all
-from cbdb_parity.sqlite_builder import build_sqlite
+from cbdb_parity.sqlite_builder import build_sqlite, build_sqlite_from_events
 
 _MANIFEST_NAME = "build_manifest.json"
 
@@ -128,6 +130,7 @@ def _build_mdb_if_needed(
     existing: dict[str, object],
     *,
     rebuild: bool,
+    source: str = "datadump",
     on_started: Callable[[], None] | None = None,
 ) -> dict[str, object]:
     """Build cbdb_data.mdb unless the manifest already records it for
@@ -156,14 +159,30 @@ def _build_mdb_if_needed(
     schema_overlay = load_access_schema(xlsx_path)
 
     t0 = time.time()
-    print(f"  [building] mdb     -> {out_path}")
-    with open_dump_stream(info) as stream:
-        stats = build_mdb(
-            stream,
-            out_path,
-            access_schema=schema_overlay,
-            on_started=on_started,
-        )
+    print(f"  [building] mdb     -> {out_path}  (source={source})")
+    if source == "mariadb":
+        assert cfg.mariadb is not None, "_build_mdb_if_needed got source='mariadb' but cfg.mariadb is None"
+        # Lazy import + scoped pymysql connection so the Datadump path
+        # never imports pymysql or holds a MariaDB socket.
+        from cbdb_parity.mariadb import _connect
+        conn = _connect(cfg.mariadb, database=cfg.mariadb.database)
+        try:
+            stats = build_mdb_from_events(
+                mariadb_iter_events(conn, cfg.mariadb.database),
+                out_path,
+                access_schema=schema_overlay,
+                on_started=on_started,
+            )
+        finally:
+            conn.close()
+    else:
+        with open_dump_stream(info) as stream:
+            stats = build_mdb(
+                stream,
+                out_path,
+                access_schema=schema_overlay,
+                on_started=on_started,
+            )
     elapsed = time.time() - t0
     print(
         f"             {stats.tables_created} tables, "
@@ -184,8 +203,10 @@ def _build_sqlite_if_needed(
     sha: str,
     out_path: Path,
     existing: dict[str, object],
+    cfg: Config,
     *,
     rebuild: bool,
+    source: str = "datadump",
     on_started: Callable[[], None] | None = None,
 ) -> dict[str, object]:
     """Build cbdb.sqlite unless the manifest already records it for this
@@ -210,9 +231,22 @@ def _build_sqlite_if_needed(
         return cached_entry
 
     t0 = time.time()
-    print(f"  [building] sqlite  -> {out_path}")
-    with open_dump_stream(info) as stream:
-        stats = build_sqlite(stream, out_path, on_started=on_started)
+    print(f"  [building] sqlite  -> {out_path}  (source={source})")
+    if source == "mariadb":
+        assert cfg.mariadb is not None, "_build_sqlite_if_needed got source='mariadb' but cfg.mariadb is None"
+        from cbdb_parity.mariadb import _connect
+        conn = _connect(cfg.mariadb, database=cfg.mariadb.database)
+        try:
+            stats = build_sqlite_from_events(
+                mariadb_iter_events(conn, cfg.mariadb.database),
+                out_path,
+                on_started=on_started,
+            )
+        finally:
+            conn.close()
+    else:
+        with open_dump_stream(info) as stream:
+            stats = build_sqlite(stream, out_path, on_started=on_started)
     elapsed = time.time() - t0
     print(
         f"             {stats.tables_created} tables, "
@@ -352,13 +386,34 @@ def build_all(
         nonlocal mdb_build_started
         mdb_build_started = True
 
+    # Pick the import source. Phase 1.6 §4d makes 'mariadb' the default
+    # when `cfg.mariadb` is configured (= all 5 required MARIADB_* keys
+    # set in .env); otherwise fall back to the Datadump-direct path so
+    # non-Docker hosts still work. If 'mariadb' is selected, populate
+    # the cache up front via ensure_imported() so both builders read
+    # from a guaranteed-fresh DB.
+    source = "mariadb" if cfg.mariadb is not None else "datadump"
+    if source == "mariadb":
+        try:
+            cache_status = ensure_imported(cfg, info)
+            verb = "reused cached" if cache_status.reused else "re-imported"
+            print(
+                f"[mariadb] {verb} Datadump SHA {cache_status.datadump_sha[:12]} "
+                f"in {cache_status.elapsed_seconds:.1f}s"
+            )
+        except MariaDbError as exc:
+            print(f"MariaDB cache step failed: {exc}", file=sys.stderr)
+            return 1
+
     try:
         products["sqlite"] = _build_sqlite_if_needed(
             info=info,
             sha=sha,
             out_path=sqlite_out,
             existing=existing,
+            cfg=cfg,
             rebuild=rebuild,
+            source=source,
             on_started=_mark_sqlite_started,
         )
         products["mdb"] = _build_mdb_if_needed(
@@ -368,6 +423,7 @@ def build_all(
             cfg=cfg,
             existing=existing,
             rebuild=rebuild,
+            source=source,
             on_started=_mark_mdb_started,
         )
     except (
@@ -379,6 +435,7 @@ def build_all(
         sqlite3.Error,
         MdbBuilderError,
         AccessSchemaError,
+        MariaDbError,
         ImportError,
         _pyodbc_error,
         _pypyodbc_error,

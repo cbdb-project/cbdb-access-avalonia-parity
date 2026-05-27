@@ -179,16 +179,17 @@ def test_create_table_sql_overlay_emits_primary_key_clause() -> None:
         ],
     })
     sql = _create_table_sql(dump_sch, overlay)
-    # PK clause intentionally suppressed even when the overlay declares
-    # one — see mdb_builder._create_table_sql for the rationale (Jet
-    # IntegrityError 23000 against PK-flagged xlsx cols with duplicates
-    # in the Datadump). Type / NOT NULL output is unaffected.
+    # Both PK and NOT NULL clauses are intentionally suppressed even
+    # when the overlay declares them — see mdb_builder._create_table_sql
+    # for the rationale (Jet IntegrityError 23000 against PK-flagged
+    # cols with duplicates in the Datadump; -3701 NOT NULL violation
+    # against xlsx-flagged cols with NULL rows in the Datadump). Type
+    # output (DataFormat → ODBC mapping) still applies.
     assert "PRIMARY KEY" not in sql
-    assert "[c_addr_id] INTEGER NOT NULL" in sql
-    assert "[c_belongs_to] INTEGER NOT NULL" in sql
+    assert "NOT NULL" not in sql
+    assert "[c_addr_id] INTEGER" in sql
+    assert "[c_belongs_to] INTEGER" in sql
     assert "[c_first_year] INTEGER" in sql
-    # c_first_year nullable=True → no NOT NULL.
-    assert "[c_first_year] INTEGER NOT NULL" not in sql
 
 
 def test_create_table_sql_overlay_skips_pk_when_pk_col_not_in_dump() -> None:
@@ -224,11 +225,12 @@ def test_create_table_sql_no_overlay_uses_mysql_types_only() -> None:
     assert "NOT NULL" not in sql
 
 
-def test_build_mdb_with_overlay_keeps_types_and_not_null_without_pk(tmp_path: Path, fake_db) -> None:
-    """End-to-end: build_mdb consumes the overlay and the resulting
-    CREATE TABLE issued to the cursor reflects the overlay's data
-    formats and nullability — but the PK clause is intentionally
-    suppressed (Jet IntegrityError 23000 on Datadump duplicates)."""
+def test_build_mdb_with_overlay_keeps_types_without_pk_or_not_null(tmp_path: Path, fake_db) -> None:
+    """End-to-end: build_mdb consumes the overlay's DataFormat (Long →
+    INTEGER, Memo → LONGTEXT) but suppresses both PK and NOT NULL
+    clauses on emission. Jet IntegrityError 23000 (duplicate PK) and
+    -3701 (NOT NULL violation) would otherwise abort per-table commits
+    on real CBDB Datadump rows."""
     dump = b"CREATE TABLE `T` (`id` int(11), `payload` text);INSERT INTO `T` VALUES (1,'x');"
     overlay = _overlay_schema({
         "T": [
@@ -241,9 +243,10 @@ def test_build_mdb_with_overlay_keeps_types_and_not_null_without_pk(tmp_path: Pa
     build_mdb(io.BytesIO(dump), out, access_schema=overlay,
               create_db=create_db, connect=connect)
     create_sql = next(c[0] for c in state["connection"].cursor_obj.execute_calls if "CREATE TABLE" in c[0])
-    assert "[id] INTEGER NOT NULL" in create_sql
+    assert "[id] INTEGER" in create_sql
     assert "[payload] LONGTEXT" in create_sql
     assert "PRIMARY KEY" not in create_sql
+    assert "NOT NULL" not in create_sql
 
 
 def test_normalise_value_bytes_bool() -> None:

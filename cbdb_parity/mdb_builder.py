@@ -169,7 +169,8 @@ def _create_table_sql(schema: TableSchema, access_schema: AccessSchema | None = 
     table, the TablesFields.xlsx overlay applies:
       - per-column DataFormat overrides the MySQL-derived type (xlsx
         entries with blank DataFormat fall back to MySQL-derived)
-      - per-column `nullable=False` adds `NOT NULL`
+      - per-column `nullable=False` documents intent BUT we DO NOT
+        emit `NOT NULL` against the overlay (rationale below)
       - any column flagged `is_primary_key` joins a trailing
         `PRIMARY KEY (...)` clause
     Columns present in the Datadump but absent from the xlsx pass
@@ -186,8 +187,16 @@ def _create_table_sql(schema: TableSchema, access_schema: AccessSchema | None = 
             access_type = _DATA_FORMAT_TO_ODBC[ovl.data_format]
         else:
             access_type = mysql_type_to_access(c.sql_type)
-        not_null = " NOT NULL" if ovl is not None and not ovl.nullable else ""
-        col_defs.append(f"[{c.name}] {access_type}{not_null}")
+        # NOT NULL is intentionally NOT emitted from the xlsx overlay,
+        # matching the PRIMARY KEY suppression policy: the production
+        # mdb maintained in $MYSQL2ACCESS_DIR doesn't enforce these
+        # constraints, and real CBDB Datadump rows occasionally have
+        # NULL values in xlsx-flagged-NOT-NULL columns (e.g. ADDR_CODES.
+        # x_coord). The xlsx serves as schema documentation; MySQL/
+        # MariaDB upstream is the actual source of truth for value
+        # constraints. Emitting NOT NULL aborts the per-table commit
+        # with `(-3701) You must enter a value in...` for those rows.
+        col_defs.append(f"[{c.name}] {access_type}")
 
     # Intentionally do NOT emit PRIMARY KEY constraints from the
     # TablesFields.xlsx overlay. The production Access mdb maintained
@@ -240,8 +249,8 @@ def _default_connect(path: Path) -> _Connection:
     return pyodbc.connect(conn_str)
 
 
-def build_mdb(
-    dump_stream: IO[bytes],
+def build_mdb_from_events(
+    events: Iterable[TableSchema | Row],
     output_path: Path,
     *,
     with_internal: bool = False,
@@ -306,7 +315,7 @@ def build_mdb(
         cursor = conn.cursor()
         try:
             _drain(
-                parse_dump(dump_stream),
+                events,
                 cursor,
                 conn,
                 stats,
@@ -319,6 +328,35 @@ def build_mdb(
     finally:
         conn.close()
     return stats
+
+
+def build_mdb(
+    dump_stream: IO[bytes],
+    output_path: Path,
+    *,
+    with_internal: bool = False,
+    access_schema: AccessSchema | None = None,
+    create_db: Any = None,
+    connect: Any = None,
+    on_started: Callable[[], None] | None = None,
+) -> BuildStats:
+    """Stream-source variant: parse `dump_stream` then call `build_mdb_from_events`.
+
+    Retained for the Datadump-direct fallback path (`source='datadump'`
+    on the orchestrator). Per WORK_PLAN §4d the MariaDB cache path
+    becomes the default, and that path goes through
+    `build_mdb_from_events` with a MariaDB-sourced iterable. Shape /
+    contract are otherwise identical.
+    """
+    return build_mdb_from_events(
+        parse_dump(dump_stream),
+        output_path,
+        with_internal=with_internal,
+        access_schema=access_schema,
+        create_db=create_db,
+        connect=connect,
+        on_started=on_started,
+    )
 
 
 def _drain(
