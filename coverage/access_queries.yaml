@@ -1,0 +1,243 @@
+# CBDB Access query inventory (Phase 2)
+#
+# Crawled from cbdb-user-mdb-tests/tests/test_vba_*.py + cbdb_driver/ +
+# cbdb_replay/. Each entry corresponds to one VBA command on one Form_*
+# screen that the existing automated test framework drives.
+#
+# Schema:
+#   id            stable snake_case key used by coverage/matrix.md
+#   category      human-readable group (form + action)
+#   driver        cbdb_driver (real Access UI via pywinauto)
+#                 cbdb_replay (Python SQL equivalent)
+#                 both (used together — typical pattern)
+#   vba_command   CmdQuery / CmdGIS / CmdNeo4j / CmdUCINet / etc.
+#   form          Form_LookAtEntry / Form_LookAtOffice / ...
+#   test_files    pytest files exercising it
+#   status        one of:
+#                   implemented_in_tests
+#                   implemented_in_tests_issue_22_vulnerable
+#                   gap_issue_XX (e.g. gap_issue_22)
+#                   gap_timeout
+#                   gap_unclear_scope
+#   description   one-line semantic
+
+version: 1
+generated_from:
+  repo: cbdb-user-mdb-tests
+  commit_sha: 3bfea16de2a2fe612c7d37d3d8001c9484750da2
+  branch: master
+  paths:
+    - tests/test_vba_*.py
+    - cbdb_driver/
+    - cbdb_replay/
+
+queries:
+  # === Form_LookAtEntry (entry codes) ===
+  - { id: entry_basic_search, category: "Entry basic search", driver: both,
+      vba_command: CmdQuery, form: Form_LookAtEntry,
+      test_files: [test_vba_matrix.py, test_vba_matrix_all_forms.py, test_vba_inline.py],
+      status: implemented_in_tests,
+      description: "Filter ENTRY_DATA by code + dynasty + index-year/address" }
+  - { id: entry_gis_export, category: "Entry GIS export", driver: both,
+      vba_command: CmdGIS, form: Form_LookAtEntry,
+      test_files: [test_vba_export.py, test_vba_cmdgis_other_forms.py],
+      status: implemented_in_tests,
+      description: ".tab export with 20-column coords schema" }
+  - { id: entry_neo4j_export, category: "Entry Neo4j export", driver: cbdb_driver,
+      vba_command: CmdNeo4j, form: Form_LookAtEntry,
+      test_files: [test_vba_cmdneo4j_cross_form.py],
+      status: implemented_in_tests,
+      description: "Multi-CSV export (People, PeopleEntry, Places, EntryCodes)" }
+  - { id: entry_import_codes, category: "Entry import codes", driver: cbdb_driver,
+      vba_command: CmdImportEntryCodes, form: Form_LookAtEntry,
+      test_files: [test_vba_import_lists.py], status: implemented_in_tests,
+      description: "Import tab-separated entry-code list" }
+  - { id: entry_import_places, category: "Entry import places", driver: cbdb_driver,
+      vba_command: CmdImportPlaces, form: Form_LookAtEntry,
+      test_files: [test_vba_import_lists.py], status: implemented_in_tests,
+      description: "Import comma-separated address-ID list" }
+  - { id: entry_save_codes, category: "Entry save codes", driver: cbdb_driver,
+      vba_command: CmdSaveEntryCodes, form: Form_LookAtEntry,
+      test_files: [test_vba_save_lists.py], status: implemented_in_tests,
+      description: "Export selected entry codes (id / desc / desc_chn)" }
+
+  # === Form_LookAtStatus (social-status codes) ===
+  - { id: status_basic_search, category: "Status basic search", driver: both,
+      vba_command: CmdQuery, form: Form_LookAtStatus,
+      test_files: [test_vba_matrix_all_forms.py], status: implemented_in_tests,
+      description: "Filter STATUS_DATA by code + dynasty + year-mode" }
+  - { id: status_gis_export, category: "Status GIS export", driver: cbdb_driver,
+      vba_command: CmdGIS, form: Form_LookAtStatus,
+      test_files: [test_vba_cmdgis_other_forms.py], status: implemented_in_tests,
+      description: ".tab export with person+office coords" }
+  - { id: status_neo4j_export, category: "Status Neo4j export", driver: cbdb_driver,
+      vba_command: CmdNeo4j, form: Form_LookAtStatus,
+      test_files: [test_vba_cmdneo4j_cross_form.py], status: implemented_in_tests,
+      description: "CSV-set export" }
+  - { id: status_import_codes, category: "Status import codes", driver: cbdb_driver,
+      vba_command: CmdImportStatusCodes, form: Form_LookAtStatus,
+      test_files: [test_vba_import_lists.py], status: implemented_in_tests,
+      description: "Import tab-separated status-code list" }
+  - { id: status_save_codes, category: "Status save codes", driver: cbdb_driver,
+      vba_command: CmdSaveStatusCodes, form: Form_LookAtStatus,
+      test_files: [test_vba_save_lists.py], status: implemented_in_tests,
+      description: "Export selected status codes" }
+
+  # === Form_LookAtTexts (bibliography) ===
+  - { id: texts_basic_search, category: "Texts basic search", driver: both,
+      vba_command: CmdQuery, form: Form_LookAtTexts,
+      test_files: [test_vba_matrix_all_forms.py], status: implemented_in_tests,
+      description: "Filter BIOG_TEXT_DATA by category + dynasty + year-mode" }
+  - { id: texts_gis_export, category: "Texts GIS export", driver: cbdb_driver,
+      vba_command: CmdGIS, form: Form_LookAtTexts,
+      test_files: [test_vba_cmdgis_other_forms.py], status: implemented_in_tests,
+      description: ".tab export" }
+  - { id: texts_neo4j_export, category: "Texts Neo4j export", driver: cbdb_driver,
+      vba_command: CmdNeo4j, form: Form_LookAtTexts,
+      test_files: [test_vba_cmdneo4j_cross_form.py], status: implemented_in_tests,
+      description: "CSV-set export" }
+  - { id: texts_import_categories, category: "Texts import categories", driver: cbdb_driver,
+      vba_command: CmdImportTextCategories, form: Form_LookAtTexts,
+      test_files: [test_vba_import_lists.py], status: implemented_in_tests,
+      description: "Import tab-separated bibliography categories" }
+  - { id: texts_save_categories, category: "Texts save categories", driver: cbdb_driver,
+      vba_command: CmdSaveTextCategories, form: Form_LookAtTexts,
+      test_files: [test_vba_save_lists.py], status: implemented_in_tests,
+      description: "Export selected text categories" }
+
+  # === Form_LookAtAssociations (1-hop edges) ===
+  - { id: assoc_basic_search, category: "Association basic search", driver: both,
+      vba_command: CmdQuery, form: Form_LookAtAssociations,
+      test_files: [test_vba_matrix_all_forms.py], status: implemented_in_tests,
+      description: "Filter ASSOC_DATA by code + dynasty + year-mode" }
+  - { id: assoc_gis_export, category: "Association GIS export", driver: cbdb_driver,
+      vba_command: CmdGIS, form: Form_LookAtAssociations,
+      test_files: [test_vba_cmdgis_other_forms.py], status: implemented_in_tests,
+      description: ".tab export" }
+  - { id: assoc_neo4j_export, category: "Association Neo4j export", driver: cbdb_driver,
+      vba_command: CmdNeo4j, form: Form_LookAtAssociations,
+      test_files: [test_vba_cmdneo4j_cross_form.py], status: implemented_in_tests,
+      description: "CSV-set export (Issue #23 workaround applied)" }
+  - { id: assoc_ucinet_export, category: "Association UCINet export", driver: cbdb_driver,
+      vba_command: CmdUCINet, form: Form_LookAtAssociations,
+      test_files: [], status: gap_issue_22,
+      description: ".vna export (blocked by Issue #22 — ADO Stream encoding)" }
+  - { id: assoc_pajek_export, category: "Association Pajek export", driver: cbdb_driver,
+      vba_command: CmdPajek, form: Form_LookAtAssociations,
+      test_files: [test_vba_pajek_gephi_cross_form.py], status: implemented_in_tests,
+      description: "Pajek .net export" }
+  - { id: assoc_gephi_export, category: "Association Gephi export", driver: cbdb_driver,
+      vba_command: CmdGephi, form: Form_LookAtAssociations,
+      test_files: [test_vba_pajek_gephi_cross_form.py], status: implemented_in_tests,
+      description: "Gephi .gexf export" }
+  - { id: assoc_import_codes, category: "Association import codes", driver: cbdb_driver,
+      vba_command: CmdImportAssociations, form: Form_LookAtAssociations,
+      test_files: [test_vba_import_lists.py], status: implemented_in_tests,
+      description: "Import tab-separated association-code list" }
+  - { id: assoc_save_codes, category: "Association save codes", driver: cbdb_driver,
+      vba_command: CmdSaveAssociations, form: Form_LookAtAssociations,
+      test_files: [test_vba_save_lists.py], status: implemented_in_tests,
+      description: "Export selected association codes" }
+
+  # === Form_LookAtOffice ===
+  - { id: office_basic_search, category: "Office basic search", driver: both,
+      vba_command: CmdQuery, form: Form_LookAtOffice,
+      test_files: [test_vba_matrix_all_forms.py], status: implemented_in_tests,
+      description: "Filter POSTED_TO_OFFICE_DATA by code + dynasty + year-mode" }
+  - { id: office_gis_export, category: "Office GIS export", driver: cbdb_driver,
+      vba_command: CmdGIS, form: Form_LookAtOffice,
+      test_files: [test_vba_cmdgis_other_forms.py], status: implemented_in_tests,
+      description: ".tab export" }
+  - { id: office_neo4j_export, category: "Office Neo4j export", driver: cbdb_driver,
+      vba_command: CmdNeo4j, form: Form_LookAtOffice,
+      test_files: [test_vba_cmdneo4j_cross_form.py], status: implemented_in_tests,
+      description: "CSV-set export" }
+  - { id: office_import_codes, category: "Office import codes", driver: cbdb_driver,
+      vba_command: CmdImportOffices, form: Form_LookAtOffice,
+      test_files: [test_vba_import_lists.py], status: implemented_in_tests,
+      description: "Import tab-separated office-code list" }
+  - { id: office_import_place_office, category: "Office: import place→office",
+      driver: cbdb_driver, vba_command: CmdImportPlaceOffice, form: Form_LookAtOffice,
+      test_files: [test_vba_import_lists.py], status: implemented_in_tests,
+      description: "Import address IDs for office-centric query" }
+  - { id: office_import_place_people, category: "Office: import place→people",
+      driver: cbdb_driver, vba_command: CmdImportPlacePeople, form: Form_LookAtOffice,
+      test_files: [test_vba_import_lists.py], status: implemented_in_tests,
+      description: "Import address IDs for person-centric office query" }
+  - { id: office_save_codes, category: "Office save codes", driver: cbdb_driver,
+      vba_command: CmdSaveOffices, form: Form_LookAtOffice,
+      test_files: [test_vba_save_lists.py], status: implemented_in_tests,
+      description: "Export selected office codes" }
+
+  # === Form_LookAtPlace ===
+  - { id: place_basic_search, category: "Place basic search", driver: both,
+      vba_command: CmdQuery, form: Form_LookAtPlace,
+      test_files: [test_vba_matrix_all_forms.py], status: implemented_in_tests,
+      description: "Filter persons/offices by address (biography branch)" }
+  - { id: place_gis_export, category: "Place GIS export", driver: cbdb_driver,
+      vba_command: CmdGIS, form: Form_LookAtPlace,
+      test_files: [test_vba_cmdgis_other_forms.py], status: implemented_in_tests,
+      description: ".tab export (Issue #24 workaround applied)" }
+  - { id: place_neo4j_export, category: "Place Neo4j export", driver: cbdb_driver,
+      vba_command: CmdNeo4j, form: Form_LookAtPlace,
+      test_files: [test_vba_cmdneo4j_cross_form.py], status: implemented_in_tests,
+      description: "CSV-set export (Issue #24 projection workaround)" }
+  - { id: place_ucinet_export, category: "Place UCINet export", driver: cbdb_driver,
+      vba_command: CmdUCINet, form: Form_LookAtPlace,
+      test_files: [], status: gap_unclear_scope,
+      description: ".vna export (ADO Stream encoding)" }
+
+  # === Form_LookAtKinship ===
+  - { id: kinship_recursive_traversal, category: "Kinship recursive traversal",
+      driver: both, vba_command: CmdRun, form: Form_LookAtKinship,
+      test_files: [test_vba_matrix_all_forms.py], status: implemented_in_tests,
+      description: "Recursive kinship expansion from seed person(s) up to distance limit" }
+  - { id: kinship_gis_export, category: "Kinship GIS export", driver: cbdb_driver,
+      vba_command: CmdGIS, form: Form_LookAtKinship,
+      test_files: [test_vba_cmdgis_other_forms.py], status: implemented_in_tests,
+      description: ".tab export" }
+  - { id: kinship_ucinet_export, category: "Kinship UCINet export", driver: cbdb_driver,
+      vba_command: CmdUCINet, form: Form_LookAtKinship,
+      test_files: [test_vba_cmducinet_kinship.py],
+      status: implemented_in_tests_issue_22_vulnerable,
+      description: ".vna export (fixture-fragile per Issue #22)" }
+
+  # === Form_LookAtNetworks ===
+  - { id: network_personal_expansion, category: "Network personal expansion",
+      driver: both, vba_command: CmdRun, form: Form_LookAtNetworks,
+      test_files: [test_vba_networks_small_fixture.py], status: implemented_in_tests,
+      description: "Expand seed person(s) to full associated-person network" }
+  - { id: network_neo4j_export, category: "Network Neo4j export", driver: cbdb_driver,
+      vba_command: CmdNeo4j, form: Form_LookAtNetworks,
+      test_files: [], status: gap_timeout,
+      description: "CSV export (timeout on high-degree persons)" }
+
+  # === Form_LookAtAssociationPairs ===
+  - { id: assocpairs_path_queries, category: "Association pair path queries",
+      driver: both, vba_command: CmdQuery, form: Form_LookAtAssociationPairs,
+      test_files: [test_vba_associationpairs_probe.py], status: implemented_in_tests,
+      description: "Find 1st + 2nd order link paths between two persons" }
+  - { id: assocpairs_neo4j_export, category: "Association pair Neo4j export",
+      driver: cbdb_driver, vba_command: CmdNeo4j, form: Form_LookAtAssociationPairs,
+      test_files: [test_vba_cmdneo4j_cross_form.py], status: implemented_in_tests,
+      description: "CSV-set export (debug MsgBox suppression applied)" }
+
+  # === Form_LookAtGroupData ===
+  - { id: groupdata_demographic_stats, category: "Group demographic stats",
+      driver: both, vba_command: CmdRun, form: Form_LookAtGroupData,
+      test_files: [], status: gap_timeout,
+      description: "Compute demographic statistics over a person list" }
+
+design_patterns_borrowed_for_our_harness:
+  - id: result_normalization
+    description: "Access writes each query result to a per-form ZZ_SCRATCH_<X> table; tests read via pandas + set-based person_id comparison. Handles NULL years correctly."
+  - id: bilingual_year_modes
+    description: "FrameYears/FrameFilterYears form controls encode 1=no-filter, 2=index-years, 3=dynasty; cbdb_replay/common.py::YearMode mirrors this."
+  - id: fixture_discovery
+    description: "analysis/discover_test_inputs.py finds top-N codes by person count, top code×dynasty combos, high-degree persons → JSON → parametrized tests. Tests pytest.skip if JSON missing."
+  - id: export_format_pinning
+    description: "cbdb_replay/exports.py re-implements each CmdGIS/CmdNeo4j/CmdUCINet in Python; tests diff bytes against VBA output. REGEN_REAL_EXPORTS=1 env var blesses goldens."
+  - id: com_resilience
+    description: "Hybrid COM + pywinauto + pyodbc; GetActiveObject re-acquires when pywinauto disconnects. Application.Run blocked by Access security model."
+  - id: vba_injection
+    description: "cbdb_driver/vba_inject.py regex-patches VBA on load (remove SetFocus, neutralize debug MsgBox). VbaInjector.patch() wraps each Sub body; auto-applied by make_fixture()."

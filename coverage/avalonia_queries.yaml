@@ -1,0 +1,150 @@
+# Avalonia query inventory (Phase 2)
+#
+# Crawled from cbdb-desktop-app/Cbdb.App.Core/I*Service.cs interfaces.
+# Each entry corresponds to one user-facing query feature backed by a
+# service interface in the .NET test-host. SQLite-implementation lives
+# in cbdb-desktop-app/Cbdb.App.Data/Sqlite*Service.cs.
+#
+# Schema:
+#   id          stable snake_case key used by coverage/matrix.md
+#   service     IFoo interface name
+#   ui_screen   primary Avalonia window/screen (null for diagnostics)
+#   methods     ordered list of public methods on the interface
+#     name        method name
+#     params      brief argument list (sqlitePath/cancellationToken omitted)
+#     returns     return type
+#     description one-line semantic
+#     kind        list | detail | lookup | diagnostic
+#   status      implemented | missing
+
+version: 1
+generated_from:
+  repo: cbdb-desktop-app
+  commit_sha: 8d2b22b4a87c254c69e3572d3120f1a8e02f14c5
+  branch: docs/access-parity-implementation-plan
+  paths:
+    - Cbdb.App.Core/I*.cs
+    - Cbdb.App.Avalonia/Modules/
+
+queries:
+  - id: entry_query
+    service: IEntryQueryService
+    ui_screen: EntryQueryWindow
+    status: implemented
+    methods:
+      - { name: GetEntryPickerDataAsync, params: [], returns: EntryPickerData, kind: lookup,
+          description: "Picker dropdown options for entry-type filtering" }
+      - { name: QueryAsync, params: [EntryQueryRequest], returns: EntryQueryResult, kind: list,
+          description: "Query people by entry-type + dynasty + year/address filters" }
+
+  - id: office_query
+    service: IOfficeQueryService
+    ui_screen: OfficeQueryWindow
+    status: implemented
+    methods:
+      - { name: GetOfficePickerDataAsync, params: [], returns: OfficePickerData, kind: lookup,
+          description: "Picker dropdown options for office filtering" }
+      - { name: QueryAsync, params: [OfficeQueryRequest], returns: OfficeQueryResult, kind: list,
+          description: "Query people by office/position + dynasty + year filters" }
+
+  - id: status_query
+    service: IStatusQueryService
+    ui_screen: StatusQueryWindow
+    status: implemented
+    methods:
+      - { name: GetStatusCodesAsync, params: [], returns: "IReadOnlyList<StatusCodeOption>", kind: lookup,
+          description: "Flat list of status codes" }
+      - { name: GetStatusPickerDataAsync, params: [], returns: StatusPickerData, kind: lookup,
+          description: "Picker dropdown options for status filtering" }
+      - { name: QueryAsync, params: [StatusQueryRequest], returns: StatusQueryResult, kind: list,
+          description: "Query people by status + dynasty + year filters" }
+
+  - id: person_browser
+    service: IPersonBrowserService
+    ui_screen: PersonBrowserWindow
+    status: implemented
+    methods:
+      - { name: SearchAsync, params: [keyword, limit, offset], returns: "IReadOnlyList<PersonListItem>",
+          kind: list, description: "Full-text search by keyword with pagination" }
+      - { name: GetPeopleByIdsAsync, params: [personIds], returns: "IReadOnlyList<PersonListItem>",
+          kind: list, description: "Batch fetch person summaries by ID" }
+      - { name: GetDetailAsync, params: [personId], returns: PersonDetail, kind: detail,
+          description: "Complete biographical profile for one person" }
+      - { name: GetAddressesAsync, params: [personId], returns: "IReadOnlyList<PersonAddressItem>",
+          kind: detail, description: "All addresses / residences for a person" }
+      - { name: GetAltNamesAsync, params: [personId], returns: "IReadOnlyList<PersonAltNameItem>",
+          kind: detail, description: "Alternative names (zi, hao, etc.)" }
+      - { name: GetWritingsAsync, params: [personId], returns: "IReadOnlyList<PersonWritingItem>",
+          kind: detail, description: "Written works authored by a person" }
+      - { name: GetPostingsAsync, params: [personId], returns: "IReadOnlyList<PersonPostingItem>",
+          kind: detail, description: "Office postings held by a person" }
+      - { name: GetEntriesAsync, params: [personId], returns: "IReadOnlyList<PersonEntryItem>",
+          kind: detail, description: "Entry codes (examinations, etc.) assigned to a person" }
+      - { name: GetStatusesAsync, params: [personId], returns: "IReadOnlyList<PersonStatusItem>",
+          kind: detail, description: "Social-status assignments for a person" }
+      - { name: GetPossessionsAsync, params: [personId], returns: "IReadOnlyList<PersonPossessionItem>",
+          kind: detail, description: "Possessions associated with a person" }
+      - { name: GetEventsAsync, params: [personId], returns: "IReadOnlyList<PersonEventItem>",
+          kind: detail, description: "Historical events involving a person" }
+      - { name: GetKinshipsAsync, params: [personId, expandNetwork], returns: "IReadOnlyList<PersonKinshipItem>",
+          kind: detail, description: "Family relationships; expandNetwork adds extended kin" }
+      - { name: GetAssociationsAsync, params: [personId], returns: "IReadOnlyList<PersonAssociationItem>",
+          kind: detail, description: "Non-family associations (1-hop)" }
+      - { name: GetSourcesAsync, params: [personId], returns: "IReadOnlyList<PersonSourceItem>",
+          kind: detail, description: "Bibliographic sources cited for a person" }
+      - { name: GetInstitutionsAsync, params: [personId], returns: "IReadOnlyList<PersonInstitutionItem>",
+          kind: detail, description: "Institutional memberships for a person" }
+      - { name: GetRelatedItemsAsync, params: [personId, category, limit], returns: DataTable, kind: detail,
+          description: "Generic dispatch by category (addresses, kinships, etc.) — used for related-items panels" }
+
+  - id: group_people
+    service: IGroupPeopleService
+    ui_screen: GroupPeopleWindow
+    status: implemented
+    methods:
+      - { name: QueryAsync, params: [personIds, GroupPeopleQueryOptions], returns: GroupPeopleQueryResult,
+          kind: list, description: "Aggregate relationships over a group (intersection/union of kin/assoc/postings)" }
+
+  - id: place_lookup
+    service: IPlaceLookupService
+    ui_screen: PlacePickerWindow
+    status: implemented
+    methods:
+      - { name: GetPlacesAsync, params: [], returns: "IReadOnlyList<PlaceOption>", kind: lookup,
+          description: "Flat list of places for picker dropdowns" }
+
+  - id: dynasty_lookup
+    service: IDynastyLookupService
+    ui_screen: DynastyPickerWindow
+    status: implemented
+    methods:
+      - { name: GetDynastiesAsync, params: [], returns: "IReadOnlyList<DynastyOption>", kind: lookup,
+          description: "Flat list of dynasties for picker dropdowns" }
+
+  - id: database_health
+    service: IDatabaseHealthService
+    ui_screen: null
+    status: implemented
+    methods:
+      - { name: CheckAsync, params: [], returns: DatabaseHealthResult, kind: diagnostic,
+          description: "Verify database integrity and schema completeness" }
+
+  - id: database_index
+    service: IDatabaseIndexService
+    ui_screen: DatabaseIndexProgressWindow
+    status: implemented
+    methods:
+      - { name: CheckRecommendedIndexesAsync, params: [], returns: DatabaseIndexCheckResult, kind: diagnostic,
+          description: "Detect whether recommended query indexes are present" }
+      - { name: EnsureRecommendedIndexesAsync, params: [progress], returns: void, kind: diagnostic,
+          description: "Create recommended indexes with progress reporting" }
+
+# ---- Notable gaps vs the Access UI feature set ----
+# (These are listed for visibility; matrix.md is where pairing happens.)
+gaps_vs_access:
+  - description: "No bibliography / Texts query (Form_LookAtTexts in Access)"
+  - description: "No kinship recursive-traversal (Form_LookAtKinship in Access) — only 1-hop in PersonBrowser"
+  - description: "No association-pairs path query (Form_LookAtAssociationPairs in Access)"
+  - description: "No personal-network expansion (Form_LookAtNetworks in Access)"
+  - description: "No GIS / Neo4j / UCINet / Pajek / Gephi exports — those are batch-export workflows on the Access side"
+  - description: "No place-centric query screen (Form_LookAtPlace in Access)"
