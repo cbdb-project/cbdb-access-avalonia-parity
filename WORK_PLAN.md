@@ -137,14 +137,18 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
   - ✅ 1.1 `cbdb_parity.mysqldump` (forward-only mysqldump parser, fail-loud)
   - ✅ 1.2 `cbdb_parity.sqlite_builder` + `cbdb-parity-build-sqlite` (Python port of `ExportMysqlToSqlite`; real-world: 94 tables / 5.74M rows / 559 MB in 405 s)
   - ✅ 1.3a `cbdb_parity.access_schema` (TablesFields.xlsx loader)
-  - 🚧 **1.3b `cbdb_parity.access_types` + `cbdb_parity.mdb_builder` + `cbdb-parity-build-mdb` CLI (NEXT)** — Python end-to-end, `pypyodbc.win_create_mdb` bootstrap, reuses `cbdb_parity.mysqldump` parser, `executemany` INSERT, CBDB__/oauth/audit SKIP_TABLES, type translator per §4a above
-  - ✅ 1.4 `cbdb_parity.build_all` + `cbdb-parity-build-all` (SHA cache, manifest invariants, partial-write protection, mandatory refresh)
+  - ✅ 1.3b code complete (`cbdb_parity.access_types`, `cbdb_parity.mdb_builder`, `cbdb-parity-build-mdb` CLI, build_all integration, 24 tests). Reviewer round 2 PASS. **Codex final round pending** (rate-limit reset due ~9:22 AM the day of authoring). Real-world end-to-end mdb build was running in the background at commit time of the last code change.
+  - ✅ 1.4 `cbdb_parity.build_all` + `cbdb-parity-build-all` (SHA cache, manifest invariants, partial-write protection, mandatory refresh) — extended in 1.3b to build both products
   - ✅ 1.5 `cbdb_parity.parity_check` (row-count diff between mdb and sqlite)
 
 - **Phase 2 — Query coverage matrix**
   - ✅ `coverage/avalonia_queries.yaml` (29 methods / 9 services) + `coverage/access_queries.yaml` (43 queries / 11 forms) + `coverage/matrix.md` (16 directly-paired + 4 shape-mismatched + 4 access-only)
 
-- **Phase 3 (1–2 weeks)** — differential harness skeleton + first 3 paired queries (Entry / Office / Status query — revised starter set, see §6). Blocked by 1.3b (per §1 strict-pipeline rule — pre-existing mdb is not an acceptable substitute).
+- **Phase 3 (1–2 weeks)** — differential harness skeleton + first 3 paired queries (Entry / Office / Status — revised starter set, see §6).
+  - ✅ 3a (revised — no .NET test host, since the user's machine has only the .NET runtime, not the SDK): `cbdb_parity.avalonia_query_sql` (raw-string SQL extractor from `Sqlite*QueryService.cs`) + `cbdb_parity.avalonia_query` (Python re-execution of the extracted SQL via `sqlite3`; produces bit-identical rows because both Microsoft.Data.Sqlite and Python's sqlite3 wrap the same engine). `EntryQueryRequest` mirror + `entry_query()` verified end-to-end against the real .build/cbdb.sqlite. **Codex round pending.**
+  - ✅ 3b: `cbdb_parity.diff_report` (DiffStats / DiffResult / `diff_rows` with composite-key + compare-fields subset + `write_report` producing the WORK_PLAN §6/§7 file tree with hypothesis.md preserved across re-runs) + `cbdb_parity.access_query` (cbdb_replay bridge: sys.path injection for `$ACCESS_TESTS_REPO/tests`, EntryQueryRequest → EntryQueryInputs mapper, row projection to the 9-field common cross-section). **Codex round pending.**
+  - ✅ 3c entry pair smoke test: `tests/test_phase3c_entry_pair.py` — runs both backends, diffs by `(person_id, sequence)` on the common fields, writes the report tree, asserts diff.stats.matches. Skips cleanly when prereqs (mdb, manifest same-SHA, pyodbc, cbdb_replay) aren't met. **Will execute end-to-end once Phase 1.3b's bg build finishes AND `cbdb-parity-build-all` is run to anchor both products to the same SHA.**
+  - ⏭ 3d (Office pair) and 3e (Status pair) follow the same pattern as 3c — extend `avalonia_query.py` + `access_query.py` with `office_query`/`office_query_access` and `status_query`/`status_query_access`, mirror smoke-test files.
 
 - **Phase 4 (ongoing)** — expand coverage query-by-query; each new query lands with its diff report and (if mismatched) a root-cause note. Targets: shape-mismatched Tier 1 pairs (BIOG basic / associations / kinship / GroupData) then Access-only categories (Texts / Networks / AssociationPairs / Place) once Avalonia-side gains those features.
 
