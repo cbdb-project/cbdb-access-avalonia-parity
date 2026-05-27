@@ -308,25 +308,18 @@ def build_mdb_from_events(
     # 1. Bootstrap empty mdb (the only step pypyodbc handles).
     create_db(output_path)
 
-    # 2. Open the modern pyodbc connection and drive CREATE/INSERT.
+    # 2. Drive CREATE/INSERT via pyodbc. _drain owns connection lifecycle
+    # because it reconnects between tables — see _drain docstring for
+    # the Jet-reset rationale.
     stats = BuildStats()
-    conn = connect_fn(output_path)
-    try:
-        cursor = conn.cursor()
-        try:
-            _drain(
-                events,
-                cursor,
-                conn,
-                stats,
-                with_internal=with_internal,
-                access_schema=access_schema,
-            )
-            conn.commit()
-        finally:
-            cursor.close()
-    finally:
-        conn.close()
+    _drain(
+        events,
+        output_path,
+        connect_fn,
+        stats,
+        with_internal=with_internal,
+        access_schema=access_schema,
+    )
     return stats
 
 
@@ -361,121 +354,184 @@ def build_mdb(
 
 def _drain(
     events: Iterable[TableSchema | Row],
-    cursor: _Cursor,
-    conn: _Connection,
+    output_path: Path,
+    connect_fn: Any,
     stats: BuildStats,
     *,
     with_internal: bool,
     access_schema: AccessSchema | None = None,
 ) -> None:
-    """Consume the parser event stream into `cursor`.
+    """Consume the parser event stream and write to `output_path`.
 
-    INSERT row-by-row via `cursor.execute(sql, tuple(row))`, NOT
-    `cursor.executemany(sql, batch_of_N)`. Empirical: against the
-    Microsoft Access Driver, `executemany` triggers Jet's batch-
-    parameter path, which buffers all N rows' intermediate pages in
-    the transaction work-buffer and overflows the 2 GB hard ceiling
-    mid-table on real CBDB BIOG_* tables (~250-270 MB written before
-    HY001). The proven `accessAndMySQLTransfer/mysql2access.ipynb`
-    workflow — which produces a 792 MB cbdb.mdb on the same data —
-    uses single-row `execute()` and works because Jet processes each
-    INSERT as an independent write to the data pages, keeping the
-    transaction log down to per-row redo entries.
+    Three Jet-specific behaviours encoded here, derived from the
+    `accessAndMySQLTransfer/mysql2access.ipynb` workflow that
+    produces a 792 MB CBDB cbdb.mdb on the same data without ever
+    hitting the 2 GB ceiling we kept tripping:
 
-    We commit once at the end of each table (after the last row of
-    that table), matching the ipynb's `cnxn.commit()` cadence. A
-    single Jet transaction over a whole CBDB table is fine when each
-    row is execute-then-flushed; it's the batched-parameter path that
-    overflows the buffer.
+    1. INSERT row-by-row via `cursor.execute(sql, tuple(row))`, NOT
+       `cursor.executemany`. Access ODBC's batched-parameter path
+       buffers all N rows' intermediate pages in the transaction
+       work-buffer and overflows mid-table on real CBDB BIOG_*
+       tables. Single-row execute() lets Jet write each row to a
+       data page immediately.
 
-    Tradeoff: row-by-row is slower per row than a true bulk-load,
-    but Jet is the throughput floor either way — the ipynb takes
-    ~hours to produce 792 MB and still completes, which is what we
-    need.
+    2. Use the column-list-less INSERT form, matching the ipynb
+       exactly: `` INSERT INTO `t` values (?, ?, ?, ...) ``. Saves
+       Jet the per-row column-list lookup + validation overhead.
+       Positional binding matches the CREATE TABLE column order
+       (which our schema construction owns end-to-end).
+
+    3. **Reconnect pyodbc between tables.** Even with per-table
+       commits, Jet appears to retain per-connection page state
+       that accumulates across a multi-table run; we empirically hit
+       2 GB at ~268 MB on the 7th-or-so table. Closing and
+       reopening the pyodbc connection forces Jet to flush its
+       internal state to disk and discard any per-connection caches.
+       Cost: ~10-50 ms per reconnect x 85 tables ≈ negligible
+       against the multi-hour total. The ipynb keeps one persistent
+       connection, but it also runs from Jupyter (long-lived
+       interpreter, repeated calls may release state across cells);
+       running as a single Python script we don't get that release,
+       so we force it explicitly.
     """
     table_columns: dict[str, tuple[Column, ...]] = {}
     skipped: set[str] = set()
     batch: list[tuple[Any, ...]] = []
     batch_table: str | None = None
     batch_insert_sql: str | None = None
+    conn: Any = None
+    cursor: Any = None
+
+    def open_conn() -> None:
+        nonlocal conn, cursor
+        conn = connect_fn(output_path)
+        cursor = conn.cursor()
+
+    def close_conn(*, commit: bool) -> None:
+        """Tear down the pyodbc connection.
+
+        `commit=True` (normal table boundary): `commit()` failures
+        propagate — a write error here means the just-finished table
+        didn't actually land (disk-full, file-lock, ODBC failure),
+        and the caller MUST see that rather than treat the partial
+        mdb as complete.
+
+        `commit=False` (used by the outer error-unwind path): we are
+        already unwinding an exception, so do NOT commit any partial
+        rows from the current table. Rollback explicitly so Jet
+        discards the uncommitted state.
+
+        cursor.close() / conn.close() / rollback() failures are
+        swallowed — at that point either commit succeeded or we're
+        already raising, and best-effort teardown matches what we'd
+        want either way.
+        """
+        nonlocal conn, cursor
+        if cursor is not None:
+            try:
+                cursor.close()
+            except Exception:
+                pass
+            cursor = None
+        if conn is not None:
+            try:
+                if commit:
+                    conn.commit()
+                else:
+                    try:
+                        conn.rollback()
+                    except Exception:
+                        pass
+            finally:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                conn = None
 
     def flush() -> None:
         nonlocal batch
         if not batch or batch_insert_sql is None:
             return
         # Row-by-row execute (NOT executemany) — see docstring above.
-        # Each call lets Jet write one row to a data page immediately;
-        # the transaction log only records per-row redo entries
-        # instead of N rows' worth of work-buffer pages.
         for row in batch:
             cursor.execute(batch_insert_sql, row)
         stats.rows_inserted += len(batch)
         batch = []
 
-    for ev in events:
-        if isinstance(ev, TableSchema):
-            # End of prior table — flush the last batch AND commit so
-            # Jet can finalise the table's pages and release the
-            # transaction log before the next table starts. Matches
-            # the mysql2access.ipynb cadence (one commit per table,
-            # row-by-row INSERTs inside the table).
-            flush()
-            if batch_table is not None:
+    open_conn()
+    success = False
+    try:
+        for ev in events:
+            if isinstance(ev, TableSchema):
+                # End of prior table — flush + commit + RECONNECT so
+                # Jet drops any per-connection state before the next
+                # table starts.
+                flush()
+                if batch_table is not None:
+                    close_conn(commit=True)
+                    open_conn()
+                # Skip CBDB__* (default) and the Laravel ops tables
+                # hard-listed in the notebook. `with_internal` only
+                # opens the CBDB__ gate; ops/audit tables are never
+                # useful in the CBDB Access stack.
+                if (not with_internal and ev.name.startswith(_INTERNAL_PREFIX)) or ev.name.lower() in _NOTEBOOK_SKIP_TABLES:
+                    stats.tables_skipped.append(ev.name)
+                    skipped.add(ev.name)
+                    continue
+                cursor.execute(_create_table_sql(ev, access_schema))
                 conn.commit()
-            # Skip both CBDB__* (matching sqlite_builder default) and the
-            # Laravel ops tables hard-listed in the notebook. The
-            # `with_internal` flag only affects the CBDB__ check —
-            # ops/audit tables are never useful in the CBDB Access stack.
-            if (not with_internal and ev.name.startswith(_INTERNAL_PREFIX)) or ev.name.lower() in _NOTEBOOK_SKIP_TABLES:
-                stats.tables_skipped.append(ev.name)
-                skipped.add(ev.name)
+                table_columns[ev.name] = ev.columns
+                stats.tables_created += 1
+                placeholders = ", ".join("?" * len(ev.columns))
+                # Column-list-less INSERT with backticks — matches the
+                # proven ipynb syntax exactly. CBDB column names are
+                # plain ASCII so backtick quoting is sufficient; the
+                # positional bind aligns with our CREATE TABLE order.
+                batch_insert_sql = (
+                    f"INSERT INTO `{ev.name}` VALUES ({placeholders})"
+                )
+                batch_table = ev.name
                 continue
-            cursor.execute(_create_table_sql(ev, access_schema))
-            table_columns[ev.name] = ev.columns
-            stats.tables_created += 1
-            placeholders = ", ".join("?" * len(ev.columns))
-            cols_quoted = ", ".join(f"[{c.name}]" for c in ev.columns)
-            batch_insert_sql = (
-                f"INSERT INTO [{ev.name}] ({cols_quoted}) VALUES ({placeholders})"
-            )
-            batch_table = ev.name
-            continue
 
-        # Row event
-        if ev.table in skipped:
-            continue
-        if ev.table not in table_columns:
-            raise MdbBuilderError(
-                f"INSERT for table `{ev.table}` arrived before its CREATE TABLE"
-            )
-        if ev.table != batch_table:
-            # Interleaved-INSERT case (a, then b, then a again):
-            # flush AND commit the prior table's pending rows so the
-            # "one Jet transaction per table" policy holds even when
-            # the dump revisits earlier tables after CREATE TABLE
-            # boundaries. Without this commit, multi-table pages
-            # accumulate in one transaction and reintroduce the HY001
-            # work-buffer overflow the row-by-row pattern is trying
-            # to avoid (codex P1 finding).
-            flush()
-            if batch_table is not None:
-                conn.commit()
-            cols = table_columns[ev.table]
-            placeholders = ", ".join("?" * len(cols))
-            cols_quoted = ", ".join(f"[{c.name}]" for c in cols)
-            batch_insert_sql = (
-                f"INSERT INTO [{ev.table}] ({cols_quoted}) VALUES ({placeholders})"
-            )
-            batch_table = ev.table
+            # Row event
+            if ev.table in skipped:
+                continue
+            if ev.table not in table_columns:
+                raise MdbBuilderError(
+                    f"INSERT for table `{ev.table}` arrived before its CREATE TABLE"
+                )
+            if ev.table != batch_table:
+                # Interleaved-INSERT (a, then b, then a again): flush +
+                # commit + reconnect so the prior table's transaction
+                # closes before we start writing to the new table.
+                flush()
+                if batch_table is not None:
+                    close_conn(commit=True)
+                    open_conn()
+                cols = table_columns[ev.table]
+                placeholders = ", ".join("?" * len(cols))
+                batch_insert_sql = (
+                    f"INSERT INTO `{ev.table}` VALUES ({placeholders})"
+                )
+                batch_table = ev.table
 
-        batch.append(tuple(_normalise_value(v) for v in ev.values))
-        if len(batch) >= _BATCH_ROWS:
-            flush()
+            batch.append(tuple(_normalise_value(v) for v in ev.values))
+            if len(batch) >= _BATCH_ROWS:
+                flush()
 
-    # Tail: last table's residual rows + a final commit so it lands.
-    flush()
-    if batch_table is not None:
-        conn.commit()
+        # Tail: last table's residual rows + a final commit so it lands.
+        flush()
+        success = True
+    finally:
+        # On the happy path success=True, so we commit + close the
+        # final table's connection. On any exception success=False,
+        # so we rollback (discard the partial rows from the current
+        # in-flight table) before closing — earlier tables already
+        # committed at their boundaries are kept on disk, matching
+        # the strict-pipeline rule that a failure leaves NO partial
+        # rows in the table we were mid-write to.
+        close_conn(commit=success)
 
 
 # --- manifest write (mirrors sqlite_builder._write_manifest) ----------------

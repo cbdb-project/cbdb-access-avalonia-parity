@@ -321,13 +321,17 @@ def test_build_creates_table_and_inserts(tmp_path: Path, fake_db) -> None:
     # transaction work-buffer on real CBDB tables; see
     # mdb_builder._drain docstring).
     assert conn.cursor_obj.executemany_calls == []
-    insert_calls = [c for c in conn.cursor_obj.execute_calls if "INSERT INTO [t]" in c[0]]
+    insert_calls = [c for c in conn.cursor_obj.execute_calls if "INSERT INTO `t`" in c[0]]
     assert len(insert_calls) == 3
     insert_sql = insert_calls[0][0]
-    assert "[id]" in insert_sql and "[name]" in insert_sql
+    # INSERT is column-list-less (`VALUES (?, ?)`), not column-listed.
+    # CREATE TABLE still emits `[id] / [name]` (assertion below).
+    assert "VALUES" in insert_sql
     # FakeCursor.execute uses `*params`, so `cursor.execute(sql, row)`
     # arrives as `params = (row,)`. Unwrap one level for comparison.
     assert [c[1][0] for c in insert_calls] == [(1, "a"), (2, "b"), (3, "c")]
+    create_sql = next(c[0] for c in conn.cursor_obj.execute_calls if "CREATE TABLE" in c[0])
+    assert "[id]" in create_sql and "[name]" in create_sql
 
 
 def test_build_skips_cbdb_internal_tables_by_default(tmp_path: Path, fake_db) -> None:
@@ -386,7 +390,7 @@ def test_build_normalises_special_values(tmp_path: Path, fake_db) -> None:
     _out, _stats, conn = _build(dump, tmp_path, fake_db)
     insert_params = [
         c[1][0] for c in conn.cursor_obj.execute_calls
-        if "INSERT INTO [t]" in c[0]
+        if "INSERT INTO `t`" in c[0]
     ]
     assert insert_params == [(1, None), (2, "2024-01-01 12:00:00")]
 
@@ -406,7 +410,7 @@ def test_build_inserts_each_row_via_execute(tmp_path: Path, fake_db, monkeypatch
     _out, stats, conn = _build(dump, tmp_path, fake_db)
     assert stats.rows_inserted == 2500
     assert conn.cursor_obj.executemany_calls == []
-    insert_calls = [c for c in conn.cursor_obj.execute_calls if "INSERT INTO [t]" in c[0]]
+    insert_calls = [c for c in conn.cursor_obj.execute_calls if "INSERT INTO `t`" in c[0]]
     assert len(insert_calls) == 2500
 
 
@@ -425,7 +429,7 @@ def test_build_flushes_on_cross_table_interleaving(tmp_path: Path, fake_db) -> N
     assert stats.rows_inserted == 4
     assert conn.cursor_obj.executemany_calls == []
     insert_sequence = [
-        ("a" if "[a]" in c[0] else "b", c[1][0])
+        ("a" if "`a`" in c[0] else "b", c[1][0])
         for c in conn.cursor_obj.execute_calls
         if "INSERT INTO" in c[0]
     ]
@@ -456,16 +460,27 @@ def test_build_unicode_strings_pass_through(tmp_path: Path, fake_db) -> None:
     decodes UTF-8, and bytes-to-str pass straight through to pyodbc."""
     dump = "CREATE TABLE `t` (`n` varchar(255));INSERT INTO `t` VALUES ('中華民國');".encode()
     _out, _stats, conn = _build(dump, tmp_path, fake_db)
-    insert_params = [c[1][0] for c in conn.cursor_obj.execute_calls if "INSERT INTO [t]" in c[0]]
+    insert_params = [c[1][0] for c in conn.cursor_obj.execute_calls if "INSERT INTO `t`" in c[0]]
     assert insert_params == [("中華民國",)]
 
 
-def test_build_uses_brackets_not_backticks_in_sql(tmp_path: Path, fake_db) -> None:
-    """Access ODBC wants `[name]`, not the MySQL backtick form. The
-    sqlite_builder uses double-quotes; mdb_builder must use brackets."""
+def test_build_create_table_uses_brackets_inserts_use_backticks(tmp_path: Path, fake_db) -> None:
+    """Access ODBC accepts both `[name]` and `` `name` `` for identifiers.
+    Our convention (matching the proven `accessAndMySQLTransfer/
+    mysql2access.ipynb` output):
+      - CREATE TABLE uses `[name]` (Access-native bracketed form,
+        what `_create_table_sql` emits).
+      - INSERT uses `` `name` `` + the column-list-less syntax —
+        empirically less work-buffer overhead in Jet, and the exact
+        shape that the ipynb produces successfully on this data.
+    """
     dump = b"CREATE TABLE `t` (`id` int(11));INSERT INTO `t` VALUES (1);"
     _out, _stats, conn = _build(dump, tmp_path, fake_db)
-    all_sql = "\n".join(c[0] for c in conn.cursor_obj.execute_calls)
-    all_sql += "\n".join(c[0] for c in conn.cursor_obj.executemany_calls)
-    assert "`" not in all_sql
-    assert "[t]" in all_sql or "[id]" in all_sql
+    create_sql = next(c[0] for c in conn.cursor_obj.execute_calls if "CREATE TABLE" in c[0])
+    assert "[t]" in create_sql and "[id]" in create_sql
+    insert_sql = next(c[0] for c in conn.cursor_obj.execute_calls if "INSERT INTO" in c[0])
+    assert "`t`" in insert_sql
+    # Column-list-less form: no `[id]` / `` `id` `` between `INTO` and `VALUES`.
+    assert "VALUES" in insert_sql
+    pre_values = insert_sql.split("VALUES")[0]
+    assert "[id]" not in pre_values and "`id`" not in pre_values
