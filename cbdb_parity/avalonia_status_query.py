@@ -156,7 +156,19 @@ def status_query(
             assert len(row) == len(_STATUS_RECORD_FIELDS), (
                 f"row width {len(row)} != expected {len(_STATUS_RECORD_FIELDS)}"
             )
-            rows.append(dict(zip(_STATUS_RECORD_FIELDS, row, strict=True)))
+            record = dict(zip(_STATUS_RECORD_FIELDS, row, strict=True))
+            # Mirror the C# reader's per-column normalisation. The
+            # Avalonia SELECT writes `sd.c_sequence` raw (no SQL-level
+            # COALESCE like the office query has), but the C# reader at
+            # SqliteStatusQueryService.cs:324 applies a NULL-to-0
+            # fallback via `reader.IsDBNull(12) ? 0 : reader.GetInt32(12)`.
+            # `sequence` is also part of the diff key in the Phase 3e
+            # smoke test, so forwarding raw None would produce false
+            # only-in-X mismatches for STATUS_DATA rows whose
+            # c_sequence is NULL.
+            if record.get("sequence") is None:
+                record["sequence"] = 0
+            rows.append(record)
     return rows
 
 

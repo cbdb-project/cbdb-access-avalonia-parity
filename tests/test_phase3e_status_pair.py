@@ -122,10 +122,18 @@ def test_status_pair_smoke_end_to_end(tmp_path: Path) -> None:
         access_tests_repo=cfg.access_tests_repo,
     )
 
+    # Diff key includes source_id alongside (person_id, sequence)
+    # because STATUS_DATA frequently has multiple rows per
+    # (person, sequence) — particularly when c_sequence is NULL on
+    # both sides (Avalonia + Access both coerce NULL→0, matching the
+    # C# reader), which collapses 9+ distinct rows for the same person
+    # onto a single (person_id, 0) key. source_id discriminates those.
+    # If a future test still collides on (person_id, sequence,
+    # source_id), widen further (e.g. add first_year).
     diff = diff_rows(
         avalonia_rows,
         access_rows,
-        key_fields=("person_id", "sequence"),
+        key_fields=("person_id", "sequence", "source_id"),
         compare_fields=status_query_common_fields(),
     )
 

@@ -68,16 +68,21 @@ def _avalonia_request_to_replay_inputs(request: StatusQueryRequest) -> Any:
             "Access ground truth."
         )
 
-    from cbdb_replay.common import YearFilter
     from cbdb_replay.lookatstatus import StatusQueryInputs
 
-    year_filter = YearFilter(mode="none")
+    # `StatusQueryInputs` exposes year filtering as three flat fields
+    # (`year_mode` / `from_year` / `to_year`), NOT a `YearFilter` object
+    # like `lookatoffice.OfficeQueryInputs` does. The two replay
+    # interfaces diverge here; we map directly to whichever shape each
+    # one ships.
     if request.use_index_year_range:
-        year_filter = YearFilter(
-            mode="index",
-            from_year=min(request.index_year_from, request.index_year_to),
-            to_year=max(request.index_year_from, request.index_year_to),
-        )
+        year_mode: str = "index"
+        from_year: int | None = min(request.index_year_from, request.index_year_to)
+        to_year: int | None = max(request.index_year_from, request.index_year_to)
+    else:
+        year_mode = "none"
+        from_year = None
+        to_year = None
 
     try:
         status_codes_int: list[int] = [int(c) for c in request.status_codes]
@@ -93,7 +98,9 @@ def _avalonia_request_to_replay_inputs(request: StatusQueryRequest) -> Any:
         addr_ids=addr_ids,
         include_subunits=request.include_subordinate_units,
         use_xy_radius=False,
-        year_filter=year_filter,
+        year_mode=year_mode,  # type: ignore[arg-type]
+        from_year=from_year,
+        to_year=to_year,
     )
 
 
