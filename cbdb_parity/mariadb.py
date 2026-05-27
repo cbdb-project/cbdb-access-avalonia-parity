@@ -93,10 +93,19 @@ def _connect(mdb: MariaDbConfig, *, database: str | None) -> Any:
     """Open a pymysql connection. `database=None` connects without USE.
 
     Lazy import keeps pymysql out of the non-MariaDB code path.
+
+    Server-side timeouts are bumped to 24 h because our consumer
+    pattern is "SELECT a million rows from one table, then INSERT them
+    row-by-row into Jet at ~100-500 rows/sec". With pymysql's SSCursor
+    holding the SELECT open while we slowly write to Access, MariaDB's
+    default `net_write_timeout=60` drops the connection mid-stream
+    (real-world: ~19 min in, 45 MB written, error 2013 "Lost
+    connection to MySQL server during query"). 24 h headroom covers
+    even the biggest CBDB tables.
     """
     import pymysql
 
-    return pymysql.connect(
+    conn = pymysql.connect(
         host=mdb.host,
         port=mdb.port,
         user=mdb.user,
@@ -106,6 +115,12 @@ def _connect(mdb: MariaDbConfig, *, database: str | None) -> Any:
         local_infile=False,
         autocommit=True,
     )
+    _LONG_TIMEOUT_S = 24 * 60 * 60
+    with conn.cursor() as cur:
+        for var in ("wait_timeout", "interactive_timeout",
+                    "net_read_timeout", "net_write_timeout"):
+            cur.execute(f"SET SESSION {var} = %s", (_LONG_TIMEOUT_S,))
+    return conn
 
 
 def _container_state(name: str) -> str | None:
