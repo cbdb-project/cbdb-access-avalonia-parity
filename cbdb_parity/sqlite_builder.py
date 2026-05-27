@@ -25,7 +25,7 @@ import re
 import sqlite3
 import sys
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -114,6 +114,7 @@ def build_sqlite(
     output_path: Path,
     *,
     with_internal: bool = False,
+    on_started: Callable[[], None] | None = None,
 ) -> BuildStats:
     """Stream `dump_stream` through the parser, write `output_path`, return stats.
 
@@ -126,10 +127,26 @@ def build_sqlite(
     `with_internal=False` (the default, matching Laravel's
     `--with-internal` flag default) skips tables whose name starts with
     `CBDB__`. Set to True to include them.
+
+    `on_started` (optional) fires AFTER the destructive overwrite step
+    has crossed the point of no return — i.e. after the prior file (if
+    any) is removed and we are about to (or have just begun to) write
+    the new one. A caller using `on_started` to gate partial-write
+    cleanup can therefore distinguish "build never touched the
+    destination" (callback never fires, previous artifact still valid)
+    from "build started writing then failed" (callback fired, partial
+    output needs cleanup).
     """
     if output_path.exists():
         output_path.unlink()
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Crossed the destructive boundary: any prior good file is now gone.
+    # Fire the started signal BEFORE sqlite3.connect creates the new
+    # empty file so the caller's cleanup is armed even if connect itself
+    # raises (rare but possible on permission / disk-full errors).
+    if on_started is not None:
+        on_started()
 
     stats = BuildStats()
     conn = sqlite3.connect(output_path)
@@ -316,8 +333,14 @@ def cli_main() -> int:
         return 1
     elapsed = time.time() - t0
 
-    # Manifest sits at repo root (one level above the package).
-    manifest_path = Path(__file__).resolve().parent.parent / "build_manifest.json"
+    # Manifest sits at the workspace root (next to .env), discovered
+    # via find_dotenv so non-editable installs don't end up writing
+    # provenance under site-packages. Same helper used by
+    # `cbdb_parity.mdb_builder` and `cbdb_parity.build_all` — keeps
+    # the standalone CLIs and the orchestrator pointed at the same
+    # manifest file.
+    from cbdb_parity.mdb_builder import _workspace_root_manifest_path
+    manifest_path = _workspace_root_manifest_path()
     try:
         _write_manifest(manifest_path, info, sha, out_path, stats, elapsed)
     except OSError as exc:

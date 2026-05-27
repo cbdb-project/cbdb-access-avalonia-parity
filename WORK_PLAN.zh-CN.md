@@ -154,5 +154,6 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
 **规划阶段已敲定：**
 - ✅ **缓存**：生成的 Access `cbdb_data.mdb` 和 Avalonia `cbdb.sqlite` 都按 Datadump 文件名 + SHA 缓存。同一份 SHA 直接复用，除非 Datadump 换了或用户显式传 `--rebuild`。
 - ✅ **Python → Docker 切换门槛**：**不**用工作日衡量。4a（1.3b）和 4b 实施期间，由用户**主动**触发 Codex review 检查 Python port 代码。如果**连续三轮 Codex review 仍然指出严重问题**，就把对应那一步切到 Docker MySQL 兜底。Codex review 由用户触发，不自动跑。
+- ✅ **Codex CLI 调用默认参数**：`codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-5.4 -c model_reasoning_effort=medium review --uncommitted --title "..."`。在本机 Windows 上，codex 默认 sandbox 会 `spawn setup refresh` 报错把所有 shell 命令屏蔽掉，所以需要 dangerous-bypass；`gpt-5.4` + `medium` 是 per-section gate 的基线，保证多轮 review 之间的发现可比。详见 `AGENTS.md`，以及在什么场景下需要偏离这套默认（如 CI 机器、有特别微妙不变量的环节）。
 - ✅ **空 mdb 起步（1.3b）**：用 `pypyodbc.win_create_mdb()` —— 实测一行调用生成 172 KB 空 mdb。**不用** `pyodbc`（不存在文件直接报错）、**不用** ADOX/`win32com`（重）、**不用**在 repo 里 commit 模板（不可复现）。`pypyodbc` 加进 `[access]` extra 依赖，只用这一个函数；其他所有 mdb 操作继续走 `pyodbc`。
 - ✅ **LICENSE**：Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International（CC BY-NC-SA 4.0）。

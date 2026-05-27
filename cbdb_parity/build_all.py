@@ -25,6 +25,7 @@ import sqlite3
 import sys
 import tarfile
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -127,10 +128,19 @@ def _build_mdb_if_needed(
     existing: dict[str, object],
     *,
     rebuild: bool,
+    on_started: Callable[[], None] | None = None,
 ) -> dict[str, object]:
     """Build cbdb_data.mdb unless the manifest already records it for
     this SHA at this path, with the file present. Mirrors
-    `_build_sqlite_if_needed` invariants."""
+    `_build_sqlite_if_needed` invariants.
+
+    `on_started` (if provided) is forwarded to `build_mdb()` and fires
+    INSIDE the builder, AFTER the prior file (if any) has been unlinked
+    and we are about to write the fresh mdb. The caller uses this to
+    flag "destination is now in a partial state on failure" — pre-
+    builder errors (open_dump_stream, schema load) leave the flag
+    untouched so cached artifacts are preserved.
+    """
     cached_entry: dict[str, object] | None = None
     if _existing_product_sha_matches(existing, "mdb", sha):
         candidate = existing.get("products", {}).get("mdb")  # type: ignore[union-attr]
@@ -148,7 +158,12 @@ def _build_mdb_if_needed(
     t0 = time.time()
     print(f"  [building] mdb     -> {out_path}")
     with open_dump_stream(info) as stream:
-        stats = build_mdb(stream, out_path, access_schema=schema_overlay)
+        stats = build_mdb(
+            stream,
+            out_path,
+            access_schema=schema_overlay,
+            on_started=on_started,
+        )
     elapsed = time.time() - t0
     print(
         f"             {stats.tables_created} tables, "
@@ -171,12 +186,19 @@ def _build_sqlite_if_needed(
     existing: dict[str, object],
     *,
     rebuild: bool,
+    on_started: Callable[[], None] | None = None,
 ) -> dict[str, object]:
     """Build cbdb.sqlite unless the manifest already records it for this
     SHA *at the same output path*. A BUILD_OUTPUT_DIR change invalidates
     the cache even if a stale `cbdb.sqlite` happens to sit at the new
     target — otherwise we'd rewrite the manifest with the old path while
     leaving the requested target unbuilt.
+
+    `on_started` (if provided) is forwarded to `build_sqlite()` and
+    fires INSIDE the builder, AFTER the prior file (if any) has been
+    unlinked and we are about to lay down a fresh one. Pre-builder
+    errors (e.g. `open_dump_stream` failing) leave the flag untouched
+    so any cached artifact is preserved.
     """
     cached_entry: dict[str, object] | None = None
     if _existing_product_sha_matches(existing, "sqlite", sha):
@@ -190,7 +212,7 @@ def _build_sqlite_if_needed(
     t0 = time.time()
     print(f"  [building] sqlite  -> {out_path}")
     with open_dump_stream(info) as stream:
-        stats = build_sqlite(stream, out_path)
+        stats = build_sqlite(stream, out_path, on_started=on_started)
     elapsed = time.time() - t0
     print(
         f"             {stats.tables_created} tables, "
@@ -255,12 +277,15 @@ def build_all(
     existing = _load_manifest(manifest)
 
     sqlite_out = cfg.build_output_dir / "cbdb.sqlite"
-    # Snapshot the pre-build state so the failure handler can tell whether
-    # an existing good `cbdb.sqlite` was touched (in which case it's now
-    # partial and must be deleted) or was never touched (in which case
-    # deleting it would destroy the last usable artifact).
-    pre_existed = sqlite_out.is_file()
-    pre_mtime_ns = sqlite_out.stat().st_mtime_ns if pre_existed else None
+    # Touched-detection: an explicit "we entered the builder" flag, NOT
+    # mtime delta. mtime nanoseconds aren't reliable on FAT/exFAT/some
+    # network shares (a same-tick rebuild+fail looks untouched even
+    # though the file was recreated and possibly corrupted). The flag
+    # is conservatively pessimistic: anything reaching the builder is
+    # treated as "touched" on failure so we unlink the (possibly
+    # partial) output rather than risk caching a corrupt artifact.
+    sqlite_build_started = False
+    mdb_build_started = False
     # Seed `products` with same-SHA sibling entries from the existing
     # manifest. A sqlite-only successful run must NOT silently drop the
     # mdb (or other product) that was built from the same dump earlier —
@@ -294,8 +319,6 @@ def build_all(
                     continue
                 products[k] = v
     mdb_out = cfg.build_output_dir / "cbdb_data.mdb"
-    mdb_pre_existed = mdb_out.is_file()
-    mdb_pre_mtime_ns = mdb_out.stat().st_mtime_ns if mdb_pre_existed else None
 
     # Lazy import of the Access driver Error classes so the orchestrator
     # can include them in the catch list without forcing pyodbc/pypyodbc
@@ -315,6 +338,20 @@ def build_all(
     except (ImportError, AttributeError):
         pass
 
+    # The "started" flags are set by callbacks INSIDE the helpers
+    # right before they enter build_sqlite / build_mdb (i.e. AFTER
+    # open_dump_stream succeeds). That way a pre-builder failure
+    # (corrupt archive, missing schema xlsx) doesn't mistakenly mark
+    # a destination as "touched" — its previous-good content stays
+    # intact and its manifest entry is preserved.
+    def _mark_sqlite_started() -> None:
+        nonlocal sqlite_build_started
+        sqlite_build_started = True
+
+    def _mark_mdb_started() -> None:
+        nonlocal mdb_build_started
+        mdb_build_started = True
+
     try:
         products["sqlite"] = _build_sqlite_if_needed(
             info=info,
@@ -322,6 +359,7 @@ def build_all(
             out_path=sqlite_out,
             existing=existing,
             rebuild=rebuild,
+            on_started=_mark_sqlite_started,
         )
         products["mdb"] = _build_mdb_if_needed(
             info=info,
@@ -330,6 +368,7 @@ def build_all(
             cfg=cfg,
             existing=existing,
             rebuild=rebuild,
+            on_started=_mark_mdb_started,
         )
     except (
         MysqlDumpError,
@@ -355,22 +394,16 @@ def build_all(
         # a corrupt archive) never touched the destination — the old good
         # artifact is intact and we must NOT delete it. Distinguish via
         # mtime: a touch implies build_sqlite started writing.
-        if sqlite_out.is_file():
-            now_mtime_ns = sqlite_out.stat().st_mtime_ns
-            touched = (not pre_existed) or (now_mtime_ns != pre_mtime_ns)
-            if touched:
-                try:
-                    sqlite_out.unlink()
-                except OSError:
-                    pass
-        if mdb_out.is_file():
-            now_mtime_ns = mdb_out.stat().st_mtime_ns
-            touched = (not mdb_pre_existed) or (now_mtime_ns != mdb_pre_mtime_ns)
-            if touched:
-                try:
-                    mdb_out.unlink()
-                except OSError:
-                    pass
+        if sqlite_build_started and sqlite_out.is_file():
+            try:
+                sqlite_out.unlink()
+            except OSError:
+                pass
+        if mdb_build_started and mdb_out.is_file():
+            try:
+                mdb_out.unlink()
+            except OSError:
+                pass
         # Reconcile the manifest. Two cases:
         #   - existing SHA matches new SHA: only the sqlite entry is stale
         #     (other products may be fine); strip just sqlite.
@@ -382,11 +415,14 @@ def build_all(
             existing_dd = existing.get("datadump")
             existing_sha = existing_dd.get("sha256") if isinstance(existing_dd, dict) else None
             if existing_sha == sha:
-                # Same SHA: only sqlite + mdb (the products we just
-                # tried to build) are stale; strip both so the manifest
-                # doesn't point at a deleted partial file.
-                existing["products"].pop("sqlite", None)  # type: ignore[union-attr]
-                existing["products"].pop("mdb", None)  # type: ignore[union-attr]
+                # Same SHA: strip ONLY the side(s) that this run tried
+                # to build. A pre-builder failure (config / refresh
+                # error) doesn't touch either output and leaves their
+                # manifest entries intact.
+                if sqlite_build_started:
+                    existing["products"].pop("sqlite", None)  # type: ignore[union-attr]
+                if mdb_build_started:
+                    existing["products"].pop("mdb", None)  # type: ignore[union-attr]
                 products_to_write = existing.get("products", {})
             else:
                 products_to_write = {}

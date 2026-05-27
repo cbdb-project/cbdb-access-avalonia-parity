@@ -332,7 +332,15 @@ def test_build_all_strips_mdb_entry_when_mdb_rebuild_fails(
     assert "mdb" in payload_before["products"]
 
     # Now force the mdb rebuild to fail.
-    def failing_mdb(stream, out_path, **_kw):
+    def failing_mdb(stream, out_path, *, on_started=None, **_kw):
+        # Real build_mdb fires on_started immediately after the prior
+        # file is unlinked and before win_create_mdb runs — i.e. once
+        # the destination is in a "partial / unknown" state. A fake that
+        # writes a partial output crosses the same boundary, so it must
+        # fire the callback before raising or the orchestrator will
+        # treat the file as untouched and skip cleanup.
+        if on_started is not None:
+            on_started()
         out_path.write_bytes(b"\x00" * 32)  # simulate a partial mdb
         raise RuntimeError("simulated mdb mid-build failure")
 
@@ -390,8 +398,14 @@ def test_build_all_unlinks_partial_output_on_failure(
     assert sqlite_path.exists()
 
     # Now force a rebuild that will fail mid-stream.
-    def failing_build(stream, out_path, **_kw):
-        # Simulate having created a partial output before the failure.
+    def failing_build(stream, out_path, *, on_started=None, **_kw):
+        # Mirror real build_sqlite: fire on_started once the destructive
+        # overwrite is committed (before laying down the new file). The
+        # partial-write below stands in for what a mid-stream failure
+        # leaves behind, and the callback is what arms the orchestrator
+        # to clean it up.
+        if on_started is not None:
+            on_started()
         out_path.write_bytes(b"\x00" * 32)
         raise RuntimeError("simulated mid-build failure")
 
@@ -404,6 +418,44 @@ def test_build_all_unlinks_partial_output_on_failure(
     # Stale sqlite entry must be cleared from manifest.
     payload = json.loads(fake_pipeline.read_text(encoding="utf-8"))
     assert "sqlite" not in payload.get("products", {})
+
+
+def test_build_all_preserves_artifact_on_pre_destructive_failure(
+    fake_pipeline: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A builder that raises BEFORE crossing the destructive overwrite
+    boundary (i.e. before firing on_started) must NOT trigger cleanup —
+    the prior good file and its manifest entry stay intact."""
+    # Successful baseline run.
+    rc1 = build_all()
+    assert rc1 == 0
+    sqlite_path = tmp_path / "build" / "cbdb.sqlite"
+    assert sqlite_path.is_file()
+    baseline_bytes = sqlite_path.read_bytes()
+    payload_before = json.loads(fake_pipeline.read_text(encoding="utf-8"))
+    assert "sqlite" in payload_before["products"]
+
+    # Force a "pre-destructive" failure: the fake raises BEFORE firing
+    # on_started, mirroring e.g. a sqlite3.connect that errored before
+    # unlinking the previous file. Real build_sqlite fires on_started
+    # right after the unlink, so a failure before that boundary leaves
+    # the prior artifact untouched.
+    def pre_destructive_fail(stream, out_path, *, on_started=None, **_kw):
+        raise RuntimeError("simulated pre-destructive failure")
+
+    monkeypatch.setattr(ba_mod, "build_sqlite", pre_destructive_fail)
+    rc2 = build_all(rebuild=True)
+    assert rc2 == 1
+
+    # Prior file untouched.
+    assert sqlite_path.is_file()
+    assert sqlite_path.read_bytes() == baseline_bytes
+    # Prior manifest entry preserved (its provenance is still valid).
+    payload_after = json.loads(fake_pipeline.read_text(encoding="utf-8"))
+    assert payload_after.get("products", {}).get("sqlite") == \
+        payload_before["products"]["sqlite"]
 
 
 def test_build_all_does_not_use_cache_when_output_path_changed(

@@ -19,7 +19,7 @@ import json
 import sys
 import tarfile
 import time
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -234,6 +234,7 @@ def build_mdb(
     access_schema: AccessSchema | None = None,
     create_db: Any = None,
     connect: Any = None,
+    on_started: Callable[[], None] | None = None,
 ) -> BuildStats:
     """Stream `dump_stream` through the parser, write `output_path`, return stats.
 
@@ -259,6 +260,14 @@ def build_mdb(
 
     `create_db` / `connect` are injectable for tests; production callers
     leave them as None and get the real pypyodbc / pyodbc behaviour.
+
+    `on_started` (optional) fires AFTER the destructive overwrite step
+    has crossed the point of no return — i.e. after the prior file (if
+    any) is unlinked and we are about to call `create_db()` to lay down
+    a fresh mdb. Callers using this to gate partial-write cleanup can
+    therefore distinguish "build never touched the destination" (callback
+    never fires, previous artifact still valid) from "build started
+    writing then failed" (callback fired, partial output needs cleanup).
     """
     create_db = create_db or _default_create_db
     connect_fn = connect or _default_connect
@@ -266,6 +275,12 @@ def build_mdb(
     if output_path.exists():
         output_path.unlink()
     output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Crossed the destructive boundary: any prior good file is now gone.
+    # Fire BEFORE create_db so cleanup is armed even if win_create_mdb
+    # itself raises (rare but possible — driver issues, disk-full, etc.).
+    if on_started is not None:
+        on_started()
 
     # 1. Bootstrap empty mdb (the only step pypyodbc handles).
     create_db(output_path)
@@ -364,6 +379,23 @@ def _drain(
 
 # --- manifest write (mirrors sqlite_builder._write_manifest) ----------------
 
+def _workspace_root_manifest_path() -> Path:
+    """Resolve `build_manifest.json` next to the user's active `.env`.
+
+    Mirrors `cbdb_parity.build_all._workspace_root` / `_manifest_path`:
+    uses `dotenv.find_dotenv(usecwd=True)` so non-editable installs
+    don't end up writing provenance under `site-packages/`. Falls back
+    to cwd if discovery fails (which only happens when load_config
+    itself would fail, so cli_main has already returned by then).
+    """
+    from dotenv import find_dotenv
+
+    found = find_dotenv(usecwd=True)
+    if found:
+        return Path(found).resolve().parent / "build_manifest.json"
+    return Path.cwd().resolve() / "build_manifest.json"
+
+
 def _write_manifest(
     manifest_path: Path,
     info: DatadumpInfo,
@@ -453,6 +485,20 @@ def cli_main() -> int:
     print(f"SHA256       : {sha}")
     print()
 
+    # Touched-detection via a "started" flag rather than mtime delta.
+    # mtime nanoseconds aren't reliable on FAT/exFAT/some network shares
+    # — a same-tick rebuild+fail looks untouched but the file may be
+    # corrupted. The flag is set by `build_mdb()` via the `on_started`
+    # callback AFTER the prior file (if any) has been unlinked and just
+    # before the new mdb is laid down. Pre-builder failures (config
+    # load, dump open, schema parse) leave the flag False so the prior
+    # artifact's provenance is preserved.
+    build_started = False
+
+    def _mark_started() -> None:
+        nonlocal build_started
+        build_started = True
+
     # Lazily import pyodbc/pypyodbc so we can include their Error classes
     # in the catch list. Both are Windows-only — if they're missing the
     # build will fail loudly with ImportError, which we also catch.
@@ -481,7 +527,12 @@ def cli_main() -> int:
     t0 = time.time()
     try:
         with open_dump_stream(info) as stream:
-            stats = build_mdb(stream, out_path, access_schema=schema_overlay)
+            stats = build_mdb(
+                stream,
+                out_path,
+                access_schema=schema_overlay,
+                on_started=_mark_started,
+            )
     except (
         MysqlDumpError,
         DatadumpError,
@@ -493,10 +544,50 @@ def cli_main() -> int:
         _pypyodbc_error,
     ) as exc:
         print(f"build failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        # Partial-write protection: build_mdb() calls pypyodbc.win_create_mdb
+        # at startup which overwrites the destination, so a mid-stream
+        # failure leaves a corrupt mdb behind. Use the "started" flag
+        # rather than mtime delta (FAT/exFAT same-tick edge case).
+        if build_started and out_path.is_file():
+            try:
+                out_path.unlink()
+            except OSError:
+                pass
+        # Only strip the mdb manifest entry when this run actually
+        # started writing AND the entry refers to the same destination
+        # we were rebuilding. A pre-write failure or a rebuild against
+        # a different BUILD_OUTPUT_DIR leaves the previously-recorded
+        # mdb intact and its provenance valid; dropping it would force
+        # unnecessary rebuilds on the next run.
+        if build_started:
+            try:
+                manifest_path = _workspace_root_manifest_path()
+                if manifest_path.exists():
+                    payload_text = manifest_path.read_text(encoding="utf-8")
+                    try:
+                        payload = json.loads(payload_text)
+                    except json.JSONDecodeError:
+                        payload = None
+                    if isinstance(payload, dict) and isinstance(payload.get("products"), dict):
+                        mdb_entry = payload["products"].get("mdb")
+                        if (
+                            isinstance(mdb_entry, dict)
+                            and mdb_entry.get("path") == str(out_path)
+                        ):
+                            payload["products"].pop("mdb", None)
+                            manifest_path.write_text(
+                                json.dumps(payload, indent=2, sort_keys=True),
+                                encoding="utf-8",
+                            )
+            except OSError:
+                pass
         return 1
     elapsed = time.time() - t0
 
-    manifest_path = Path(__file__).resolve().parent.parent / "build_manifest.json"
+    # Manifest lives at the workspace root (next to .env), discovered
+    # via find_dotenv so non-editable installs don't end up writing
+    # provenance under site-packages.
+    manifest_path = _workspace_root_manifest_path()
     try:
         _write_manifest(manifest_path, info, sha, out_path, stats, elapsed)
     except OSError as exc:

@@ -73,6 +73,28 @@ In English: every small section ("小环节") follows this gate:
 5. Only when both gates pass does the section close and the next section
    start.
 
+**Codex invocation defaults** (per user direction, baseline for this repo):
+
+```powershell
+codex --dangerously-bypass-approvals-and-sandbox `
+      -c model=gpt-5.4 `
+      -c model_reasoning_effort=medium `
+      review --uncommitted --title "..."
+```
+
+- `--dangerously-bypass-approvals-and-sandbox`: required on this Windows
+  machine — codex's default sandbox mode hits a `spawn setup refresh`
+  error that blocks every shell command, making the review impossible.
+- `-c model=gpt-5.4`: pin the review model so iterative rounds give
+  comparable findings across the lifetime of the repo.
+- `-c model_reasoning_effort=medium`: balanced depth/latency for the
+  per-section gate; bump to `high` if a phase has unusually subtle
+  invariants (e.g. cache-key correctness, manifest reconciliation).
+
+When running on a different machine (e.g. CI), revisit these flags
+deliberately — the dangerous-bypass is a workstation accommodation, not
+a security recommendation.
+
 The Python-port vs Docker-MySQL fallback for the SQLite builder is governed
 by this same gate, with a stricter trigger: **three consecutive codex review
 rounds flagging serious issues on the Python port → switch to Docker MySQL
