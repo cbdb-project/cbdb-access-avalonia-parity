@@ -28,8 +28,16 @@ downstream may shortcut around it.
 | `MYSQL2ACCESS_DIR` | Local working folder for Datadump → Access conversion (not a git repo). | `C:\path\to\mysql2access` |
 | `ACCESS_MYSQL_TRANSFER_REPO` | Local clone of `accessAndMySQLTransfer`. | `C:\path\to\accessAndMySQLTransfer` |
 | `BUILD_OUTPUT_DIR` | Local scratch dir for generated `cbdb_data.mdb` and `cbdb.sqlite` (gitignored). | `.build` or any absolute path |
+| `MARIADB_HOST` | MariaDB host for the Phase 1.6 intermediate cache (§4d). | `localhost` |
+| `MARIADB_PORT` | MariaDB port. | `3306` |
+| `MARIADB_USER` | MariaDB user with `CREATE / DROP / INSERT` on `MARIADB_DATABASE`. | `root` |
+| `MARIADB_PASSWORD` | MariaDB password. Required; fail-loud if absent. | `notSecureChangeMe` |
+| `MARIADB_DATABASE` | DB name the Datadump is imported into. | `cbdb_data` |
+| `MARIADB_CONTAINER_NAME` | Informational; used only when `MARIADB_AUTO_LAUNCH=1`. | `cbdb-parity-mariadb` |
+| `MARIADB_FORCE_REIMPORT` | `1` = drop and reimport even when SHA matches; `0` = trust the in-DB provenance row. | `0` |
+| `MARIADB_AUTO_LAUNCH` | `1` = `docker start <CONTAINER_NAME>` if found stopped; `0` = require the user to bring the container up. | `0` |
 
-`.env.sample` is committed with these keys and placeholder values. `.env` (real local paths) is gitignored — never commit real machine paths into the public repo.
+`.env.sample` is committed with these keys and placeholder values. `.env` (real local paths and secrets) is gitignored — never commit real machine paths or passwords into the public repo.
 
 ## 3. Repository setup
 1. `git init`, set default branch `main`, add `.gitignore` (Python, .NET, PHP, .env, scratch dirs, large DBs).
@@ -98,6 +106,47 @@ This avoids spinning up MySQL on every run and keeps the pipeline self-contained
 
 Currently wires only 4b (sqlite). Once 4a Phase 1.3b lands, the orchestrator adds the parallel `_build_mdb_if_needed` call alongside `_build_sqlite_if_needed`; manifest invariants (SHA-anchored sibling preservation, partial-write protection, stale-sibling drop on SHA change) are already in place.
 
+### 4d. MariaDB intermediate cache (⏳ Phase 1.6 — adopted after Phase 1.3b empirics)
+
+The Phase 1.3b real-world build against the 1.4 GB May-27 Datadump revealed two pyodbc/Jet pathologies even with the Python port working as designed:
+
+1. **Jet 2 GB transaction-buffer ceiling** — even when the final mdb would be < 1 GB, a single-transaction bulk load against `Microsoft Access Driver` raised `HY001` once Jet's accumulated work-buffer crossed the .mdb format's 2 GB hard limit. Fixed in `mdb_builder._drain` by committing per-table.
+2. **Duplicate values blocking declared PKs** — Jet aborts the whole transaction with `IntegrityError 23000` when a Datadump row violates a PK declared via the TablesFields.xlsx overlay, even though the production Access mdb maintained in `$MYSQL2ACCESS_DIR` does not enforce those PKs either. Fixed by suppressing the overlay's PRIMARY KEY clause.
+
+Both fixes hold the Datadump-direct path together, but the **Datadump → Access** write is fundamentally throttled by the Jet ODBC driver's row-level locking with no bulk-load fast path (cf. SQLite's `synchronous=OFF / journal_mode=OFF`). The historical workflow in `$ACCESS_MYSQL_TRANSFER_REPO/mysql2access.ipynb` (and the user's empirical measurement) routes through MariaDB instead — `Datadump → MariaDB` is fast (5–10× the Python parser path), and `MariaDB → Access` via pyodbc reuses the proven ipynb pattern.
+
+**The MariaDB step is a CACHE LAYER, not a replacement for either output.** The two final products are still `cbdb.sqlite` (for the Avalonia side) and `cbdb_data.mdb` (for the Access side). The mdb still flows into `cbdb_replay`-driven pyodbc tests exactly as Phase 3 designs. Phase 1.6 displaces the in-process mysqldump parser as the **default** import step for both builders; the `cbdb_parity.mysqldump`-based path is retained as a fallback for non-Docker hosts and selected via `source='datadump'`.
+
+**Module / config layout (`Phase 1.6`):**
+
+- `.env` keys (new; documented in `.env.sample` and §2 alongside the other inputs):
+  - `MARIADB_HOST=localhost`
+  - `MARIADB_PORT=3306`
+  - `MARIADB_USER=root`
+  - `MARIADB_PASSWORD=…`  (required; no default — fail-loud if missing)
+  - `MARIADB_DATABASE=cbdb_data`
+  - `MARIADB_CONTAINER_NAME=cbdb-parity-mariadb` (informational; we don't auto-launch the container — the user runs `docker compose up` themselves)
+  - `MARIADB_FORCE_REIMPORT=0` (1 = drop and reimport even when SHA matches; 0 = trust the in-DB provenance row)
+  - `MARIADB_AUTO_LAUNCH=0` (1 = `cbdb_parity.mariadb` will `docker start <CONTAINER_NAME>` if found stopped; 0 = fail with a clear "please start the container" message; default 0 keeps the tool deterministic against shared workstations)
+
+- `cbdb_parity.mariadb`:
+  - `connect(cfg) → pymysql.Connection`
+  - `ensure_imported(cfg, info: DatadumpInfo)`:
+    1. Connect; create `cbdb_data` DB if absent.
+    2. Check `_cbdb_parity_provenance(datadump_sha, imported_at)` single-row table for `info.sha256`.
+    3. If SHA matches AND `MARIADB_FORCE_REIMPORT=0`: return cached.
+    4. Else: `DROP DATABASE IF EXISTS cbdb_data; CREATE DATABASE cbdb_data;`, stream the .tar.gz through `mysql` CLI (`tar -O -xzf … | mysql …`) or pymysql `executescript`, then write the provenance row.
+
+- `sqlite_builder` and `mdb_builder` gain `source={'datadump','mariadb'}` (default `mariadb` once 1.6 lands, with `datadump` retained as fallback for non-Docker hosts):
+  - From `mariadb`: `SHOW TABLES` + `SELECT * FROM <t>` per table → existing CREATE/INSERT loop. Both builders share a `_pull_table_rows(conn, table) → (TableSchema, Iterable[Row])` helper so the rest of the code path (skip lists, batching, manifest, per-table commit) stays the same.
+
+- `build_all` orchestrator:
+  - First runs `mariadb.ensure_imported(cfg, info)`.
+  - Then runs sqlite + mdb sub-builders against the cached MariaDB.
+  - If `MARIADB_AUTO_LAUNCH=1` the orchestrator may `docker start` the container; otherwise it surfaces "please start the container" and returns rc=2.
+
+**This is additive to Phase 1.3b, not a replacement** — the strict-pipeline rule still bans using pre-existing user mdb files as substitutes for the generated product. MariaDB import is part of OUR pipeline; it just sits between the Datadump and the two writers.
+
 ## 5. Query coverage inventory
 1. Crawl `cbdb-desktop-app/Cbdb.App.Avalonia` + `Cbdb.App.Core` to enumerate every implemented query/view (people search, office, kinship, association, place, etc.). Output `coverage/avalonia_queries.yaml`: `{id, name, params, status: implemented|missing}`.
 2. Crawl `cbdb-user-mdb-tests` (especially `test_vba_*.py`, `cbdb_driver/`, `cbdb_replay/`) to enumerate every Access query the existing framework can drive. Output `coverage/access_queries.yaml`.
@@ -137,9 +186,13 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
   - ✅ 1.1 `cbdb_parity.mysqldump` (forward-only mysqldump parser, fail-loud)
   - ✅ 1.2 `cbdb_parity.sqlite_builder` + `cbdb-parity-build-sqlite` (Python port of `ExportMysqlToSqlite`; real-world: 94 tables / 5.74M rows / 559 MB in 405 s)
   - ✅ 1.3a `cbdb_parity.access_schema` (TablesFields.xlsx loader)
-  - ✅ 1.3b code complete (`cbdb_parity.access_types`, `cbdb_parity.mdb_builder`, `cbdb-parity-build-mdb` CLI, build_all integration, 24 tests). Reviewer round 2 PASS. **Codex final round pending** (rate-limit reset due ~9:22 AM the day of authoring). Real-world end-to-end mdb build was running in the background at commit time of the last code change.
+  - ✅ 1.3b code complete (`cbdb_parity.access_types`, `cbdb_parity.mdb_builder`, `cbdb-parity-build-mdb` CLI, build_all integration). Codex rounds clean through v10 + Phase 3d v7. Two real-world fixes applied after first end-to-end attempt against the May-27 Datadump:
+    - Jet 2 GB transaction-buffer hit → **per-table commit** in `_drain`.
+    - `IntegrityError 23000` on duplicate PK values → **PRIMARY KEY clause suppressed** in `_create_table_sql` (NOT NULL / DataFormat overlays still applied).
+    The Datadump-direct path now completes; the MariaDB cache path (§4d, Phase 1.6) supersedes it once landed.
   - ✅ 1.4 `cbdb_parity.build_all` + `cbdb-parity-build-all` (SHA cache, manifest invariants, partial-write protection, mandatory refresh) — extended in 1.3b to build both products
   - ✅ 1.5 `cbdb_parity.parity_check` (row-count diff between mdb and sqlite)
+  - ⏳ **1.6 — MariaDB intermediate cache** (`cbdb_parity.mariadb` + `cbdb-parity-import-mariadb` CLI; .env keys above; sqlite_builder + mdb_builder gain `source=mariadb` default once it lands). Driver: mysql2access.ipynb's measured win for the Datadump → mdb half. See §4d for shape. Becomes the default import step; retains `source='datadump'` (the existing `cbdb_parity.mysqldump`-direct path) as fallback for non-Docker hosts. Both builders still emit the same final products.
 
 - **Phase 2 — Query coverage matrix**
   - ✅ `coverage/avalonia_queries.yaml` (29 methods / 9 services) + `coverage/access_queries.yaml` (43 queries / 11 forms) + `coverage/matrix.md` (16 directly-paired + 4 shape-mismatched + 4 access-only)
@@ -165,3 +218,4 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
 - ✅ **Codex CLI invocation defaults**: `codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-5.4 -c model_reasoning_effort=medium review --uncommitted --title "..."`. The dangerous-bypass is needed on this Windows machine because the default codex sandbox fails with `spawn setup refresh`; `gpt-5.4` + `medium` is the per-section baseline so iterative rounds stay comparable. See `AGENTS.md` for full rationale and when to deviate (e.g. CI machines, especially subtle invariants).
 - ✅ **LICENSE**: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0).
 - ✅ **Empty mdb bootstrap (1.3b)**: `pypyodbc.win_create_mdb()` — empirically verified to produce a 172 KB empty mdb in one call. NOT `pyodbc` (rejects non-existent file), NOT ADOX/`win32com` (heavier), NOT a committed template binary (not reproducible). `pypyodbc` becomes a new `[access]` extra dependency, used for that single function only; all other mdb operations stay on `pyodbc`.
+- ✅ **MariaDB intermediate cache (Phase 1.6)**: adopted as the default import source for both `sqlite_builder` and `mdb_builder` after the Phase 1.3b real-world build hit two Jet-specific pathologies (2 GB transaction-buffer ceiling, PK-on-duplicates `IntegrityError 23000`). The MariaDB cache is **not** a substitute for the strict-pipeline rule's prohibition on pre-existing user mdbs — it is an internal staging layer that we ourselves populate from the Datadump, gated by an in-DB SHA provenance row. The pre-1.6 `cbdb_parity.mysqldump`-direct path is retained as a fallback (`source='datadump'`) for non-Docker hosts. This decision is **complementary to** — not a substitute for — the earlier "three consecutive codex rounds → Docker MySQL fallback" trigger above, which still governs the Python-port-vs-Docker-MySQL decision **inside the sqlite builder**.

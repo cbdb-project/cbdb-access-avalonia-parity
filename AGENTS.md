@@ -42,6 +42,25 @@ start of every parity run by `scripts/refresh_external_repos.py`:
 - `DATADUMP_DIR`     → folder of `cbdb_data_YYYYMMDD.tar.gz` archives (input data)
 - `BUILD_OUTPUT_DIR` → local scratch dir for generated `cbdb_data.mdb` and `cbdb.sqlite` (gitignored)
 
+**(d) MariaDB intermediate cache (Phase 1.6).** Eight keys configure the
+Docker MariaDB container we use as a fast import staging layer between
+the Datadump and the two builders. The WORK_PLAN §4d holds the full
+shape; the gist:
+
+- `MARIADB_HOST` / `MARIADB_PORT` / `MARIADB_USER` / `MARIADB_PASSWORD`
+  / `MARIADB_DATABASE` — connection.
+- `MARIADB_CONTAINER_NAME` — informational; we don't auto-launch by default.
+- `MARIADB_FORCE_REIMPORT` — `0/1`; bypass the in-DB SHA cache.
+- `MARIADB_AUTO_LAUNCH`    — `0/1`; whether to `docker start` a stopped container.
+
+The MariaDB cache is part of **our** pipeline; it does NOT relax the
+"never substitute pre-existing user mdb files" rule from §1 of the
+WORK_PLAN. It is also separate from the older "three consecutive codex
+review rounds → switch to Docker MySQL fallback" gate below — that
+gate governs the **SQLite builder's** Python-port-vs-Docker-MySQL
+decision; the MariaDB cache is an upstream import step shared by both
+builders.
+
 ## Tooling defaults
 
 - **Python**: 3.11+. Dependency management via `uv` if available, else

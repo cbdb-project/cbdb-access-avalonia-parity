@@ -20,8 +20,16 @@
 | `MYSQL2ACCESS_DIR` | Datadump → Access 转换工作目录（非 git repo）。 | `C:\path\to\mysql2access` |
 | `ACCESS_MYSQL_TRANSFER_REPO` | `accessAndMySQLTransfer` 本地克隆。 | `C:\path\to\accessAndMySQLTransfer` |
 | `BUILD_OUTPUT_DIR` | 生成 `cbdb_data.mdb` 与 `cbdb.sqlite` 的本地临时目录（gitignored）。 | `.build` 或任意绝对路径 |
+| `MARIADB_HOST` | Phase 1.6 中间缓存（§4d）使用的 MariaDB 主机。 | `localhost` |
+| `MARIADB_PORT` | MariaDB 端口。 | `3306` |
+| `MARIADB_USER` | 对 `MARIADB_DATABASE` 拥有 `CREATE / DROP / INSERT` 权限的用户。 | `root` |
+| `MARIADB_PASSWORD` | MariaDB 密码。必填，缺失 fail-loud。 | `notSecureChangeMe` |
+| `MARIADB_DATABASE` | Datadump 导入进去的库名。 | `cbdb_data` |
+| `MARIADB_CONTAINER_NAME` | 信息性字段；仅在 `MARIADB_AUTO_LAUNCH=1` 时使用。 | `cbdb-parity-mariadb` |
+| `MARIADB_FORCE_REIMPORT` | `1` = SHA 匹配也强制 drop 重导；`0` = 信任 DB 内的 provenance 行。 | `0` |
+| `MARIADB_AUTO_LAUNCH` | `1` = 发现容器停了就 `docker start <CONTAINER_NAME>`；`0` = 要求用户自己起容器。 | `0` |
 
-同步提交 `.env.sample`（占位值），`.env`（真实本地路径）加进 `.gitignore` —— 永远不要把真实机器路径提交进公开 repo。
+同步提交 `.env.sample`（占位值），`.env`（真实本地路径与密码）加进 `.gitignore` —— 永远不要把真实机器路径或密码提交进公开 repo。
 
 ## 3. 仓库初始化
 1. `git init` → main 分支 → `.gitignore`（Python、.NET、PHP、.env、临时数据库）。
@@ -90,6 +98,47 @@ CLI：`scripts/build_mdb.py` + `[project.scripts] cbdb-parity-build-mdb`。编�
 
 目前只接了 4b（sqlite）。等 4a 的 Phase 1.3b 落地，编排器会增加并行的 `_build_mdb_if_needed`；manifest 不变式（按 SHA 锚定的 sibling 保留、partial-write 保护、SHA 变化时的 stale-sibling 清空）已就位。
 
+### 4d. MariaDB 中间缓存层（⏳ Phase 1.6 —— Phase 1.3b 真实跑出经验之后加入）
+
+Phase 1.3b 在真实 1.4 GB 五月 27 号 Datadump 上跑端到端时撞到两个 pyodbc/Jet 的硬伤，即便 Python 端口本身按设计跑通：
+
+1. **Jet 2 GB 事务 work-buffer 上限** —— 即便最终 mdb 写完 < 1 GB，单事务批量导入到 `Microsoft Access Driver` 在累积的 work-buffer 跨过 .mdb 格式 2 GB 硬限那刻立刻 `HY001`。已在 `mdb_builder._drain` 改成**每张表 commit 一次**修复。
+2. **dump 行违反 declared PK** —— Datadump 偶有重复值的 PK 列被 TablesFields.xlsx overlay 标成 PK，Jet 直接 `IntegrityError 23000` 整个事务 abort（即便 `$MYSQL2ACCESS_DIR` 里那份生产 mdb 也不强制 PK）。**抑制 overlay 的 PRIMARY KEY 子句**修复（NOT NULL 与 DataFormat 仍然生效）。
+
+两条都打了补丁，Datadump 直链路径能跑完，但 **Datadump → Access 写入**本质上被 Microsoft Access ODBC 驱动按行加锁 + 没有任何 bulk-load 快速路径所限制（对比 SQLite 的 `synchronous=OFF / journal_mode=OFF`）。`$ACCESS_MYSQL_TRANSFER_REPO/mysql2access.ipynb` 历史上的做法 + 用户实测都走的是 **MariaDB 中转** —— `Datadump → MariaDB` 快（Python parser 路径的 5-10×），`MariaDB → Access` 直接复用 notebook 验证过的 pyodbc 模板。
+
+**MariaDB 中间层是 CACHE，不是替代任何一边的产物。**两个最终产物仍是 `cbdb.sqlite`（喂 Avalonia 端）和 `cbdb_data.mdb`（喂 Access 端）。mdb 仍然按 Phase 3 的设计流给 `cbdb_replay` 驱动的 pyodbc 测试用。Phase 1.6 让 MariaDB 取代 in-process mysqldump parser 成为两个 builder 的**默认 import source**；`cbdb_parity.mysqldump` 直链路径保留为非 Docker 主机的 fallback，通过 `source='datadump'` 选择。
+
+**模块 / 配置布局（`Phase 1.6`）：**
+
+- `.env` 新增 key（同步写进 `.env.sample` 与 §2 输入表里）：
+  - `MARIADB_HOST=localhost`
+  - `MARIADB_PORT=3306`
+  - `MARIADB_USER=root`
+  - `MARIADB_PASSWORD=…`  （必填，无默认 —— 缺失就 fail-loud）
+  - `MARIADB_DATABASE=cbdb_data`
+  - `MARIADB_CONTAINER_NAME=cbdb-parity-mariadb`（informational；我们默认**不**自动起容器，工具运行假设用户已经 `docker compose up`）
+  - `MARIADB_FORCE_REIMPORT=0`（1 = 不管 SHA 是否一致都 drop 重导；0 = 信任 DB 里写入的 provenance 行）
+  - `MARIADB_AUTO_LAUNCH=0`（1 = `cbdb_parity.mariadb` 发现容器停了会 `docker start`；0 = 直接报错"请先启动容器"。default 0 在多人共享工作站上更可预测）
+
+- `cbdb_parity.mariadb`：
+  - `connect(cfg) → pymysql.Connection`
+  - `ensure_imported(cfg, info: DatadumpInfo)`：
+    1. 连上后建库（如不存在）。
+    2. 查 `_cbdb_parity_provenance(datadump_sha, imported_at)` 单行表里的 SHA。
+    3. SHA 匹配且 `MARIADB_FORCE_REIMPORT=0` → 直接返回 cached。
+    4. 否则：`DROP DATABASE IF EXISTS cbdb_data; CREATE DATABASE cbdb_data;`，把 .tar.gz 流送进 `mysql` CLI（`tar -O -xzf … | mysql …`）或 pymysql `executescript`，最后写 provenance 行。
+
+- `sqlite_builder` 和 `mdb_builder` 增加 `source={'datadump','mariadb'}` 参数（1.6 落地后默认 `mariadb`，`datadump` 留给非 Docker 主机做 fallback）：
+  - `mariadb` 路径：`SHOW TABLES` + `SELECT * FROM <t>` 逐表 → 现有的 CREATE/INSERT 循环。两个 builder 共用 `_pull_table_rows(conn, table) → (TableSchema, Iterable[Row])` 辅助函数，剩下的代码路径（skip 列表、batching、manifest、per-table commit）完全不变。
+
+- `build_all` 编排器：
+  - 第一步跑 `mariadb.ensure_imported(cfg, info)`。
+  - 然后跑 sqlite + mdb 子构建器，源都换成 MariaDB。
+  - `MARIADB_AUTO_LAUNCH=1` 时编排器可以 `docker start <CONTAINER_NAME>`；否则报"请启动容器" + rc=2。
+
+**这是对 Phase 1.3b 的补充，不是替代** —— §1 严格流水线规则继续禁止用本机已有的用户 mdb 替代生成的产物。MariaDB import 是**我们流水线的一部分**，只是位于 Datadump 与两个写出器之间。
+
 ## 5. 查询覆盖清单
 1. 爬 `cbdb-desktop-app/Cbdb.App.Avalonia` + `Cbdb.App.Core`，列出 Avalonia 当前实现的所有查询/视图（人物查询、官职、亲属、社会关系、地名等），输出 `coverage/avalonia_queries.yaml`：`{id, name, params, status: implemented|missing}`。
 2. 爬 `cbdb-user-mdb-tests`（重点 `test_vba_*.py`、`cbdb_driver/`、`cbdb_replay/`），列出现有框架能驱动的所有 Access 查询，输出 `coverage/access_queries.yaml`。
@@ -129,9 +178,13 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
   - ✅ 1.1 `cbdb_parity.mysqldump`（forward-only mysqldump 解析器，全链路 fail-loud）
   - ✅ 1.2 `cbdb_parity.sqlite_builder` + `cbdb-parity-build-sqlite`（`ExportMysqlToSqlite` 的 Python port；实测：94 表 / 574 万行 / 559 MB / 405 秒）
   - ✅ 1.3a `cbdb_parity.access_schema`（TablesFields.xlsx loader）
-  - ✅ 1.3b 代码完成（`cbdb_parity.access_types`、`cbdb_parity.mdb_builder`、`cbdb-parity-build-mdb` CLI、build_all 集成、24 个测试）。Reviewer round 2 PASS。**Codex 最后一轮待跑**（代码完成时遇到 codex 用量上限，下次可用窗口后再过 gate）。提交最后一笔代码时，真实 mdb 端到端构建正在后台跑。
+  - ✅ 1.3b 代码完成（`cbdb_parity.access_types`、`cbdb_parity.mdb_builder`、`cbdb-parity-build-mdb` CLI、build_all 集成）。Codex review 跑到 v10 + Phase 3d v7 都干净通过。首次端到端跑五月 27 号 Datadump 时撞到两个真实问题，已合入补丁：
+    - Jet 2 GB 事务 work-buffer 上限 → **per-table commit** in `_drain`。
+    - PK 列重复值 `IntegrityError 23000` → 抑制 **PRIMARY KEY 子句**（NOT NULL / DataFormat 仍然生效）。
+    Datadump 直链已可走通；MariaDB 中间路径（§4d，Phase 1.6）落地后会替代它作为默认。
   - ✅ 1.4 `cbdb_parity.build_all` + `cbdb-parity-build-all`（SHA 缓存、manifest 不变式、partial-write 保护、强制 refresh）
   - ✅ 1.5 `cbdb_parity.parity_check`（mdb 与 sqlite 之间的行数 diff）
+  - ⏳ **1.6 —— MariaDB 中间缓存**（`cbdb_parity.mariadb` + `cbdb-parity-import-mariadb` CLI；新增 .env key 见上；sqlite_builder + mdb_builder 增加 `source=mariadb` 默认）。驱动是 mysql2access.ipynb 实测的 Datadump→mdb 半边提速。形状见 §4d。**成为默认 import 步骤**；非 Docker 主机可通过 `source='datadump'` 回退到现有的 `cbdb_parity.mysqldump` 直链路径。两个 builder 仍然产出同样的最终产物。
 
 - **阶段 2 — 查询覆盖矩阵**
   - ✅ `coverage/avalonia_queries.yaml`（29 方法 / 9 服务）+ `coverage/access_queries.yaml`（43 查询 / 11 forms）+ `coverage/matrix.md`（16 直接配对 + 4 形状不匹配 + 4 仅 Access）
@@ -156,4 +209,5 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
 - ✅ **Python → Docker 切换门槛**：**不**用工作日衡量。4a（1.3b）和 4b 实施期间，由用户**主动**触发 Codex review 检查 Python port 代码。如果**连续三轮 Codex review 仍然指出严重问题**，就把对应那一步切到 Docker MySQL 兜底。Codex review 由用户触发，不自动跑。
 - ✅ **Codex CLI 调用默认参数**：`codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-5.4 -c model_reasoning_effort=medium review --uncommitted --title "..."`。在本机 Windows 上，codex 默认 sandbox 会 `spawn setup refresh` 报错把所有 shell 命令屏蔽掉，所以需要 dangerous-bypass；`gpt-5.4` + `medium` 是 per-section gate 的基线，保证多轮 review 之间的发现可比。详见 `AGENTS.md`，以及在什么场景下需要偏离这套默认（如 CI 机器、有特别微妙不变量的环节）。
 - ✅ **空 mdb 起步（1.3b）**：用 `pypyodbc.win_create_mdb()` —— 实测一行调用生成 172 KB 空 mdb。**不用** `pyodbc`（不存在文件直接报错）、**不用** ADOX/`win32com`（重）、**不用**在 repo 里 commit 模板（不可复现）。`pypyodbc` 加进 `[access]` extra 依赖，只用这一个函数；其他所有 mdb 操作继续走 `pyodbc`。
+- ✅ **MariaDB 中间缓存（Phase 1.6）**：Phase 1.3b 在真实 Datadump 上撞到 Jet 的两个硬伤（2 GB 事务 buffer 上限、PK-on-duplicates `IntegrityError 23000`）后，确定把 MariaDB 中间层作为 sqlite_builder + mdb_builder 的**默认** import source。该缓存层**不**违反 §1 严格流水线规则禁止使用本机已有 user mdb 的条款 —— 它由我们自己从 Datadump 灌出来，靠 in-DB SHA provenance 行做缓存校验。Phase 1.6 之前的 `cbdb_parity.mysqldump` 直链路径保留为非 Docker 主机的 fallback (`source='datadump'`)。**本条决策与前文 "连续三轮 codex → Docker MySQL 兜底" 的触发条件是互补的**，不是替代 —— 那一条仍然约束 **SQLite builder 内部** Python 端口 vs Docker MySQL 的选择。
 - ✅ **LICENSE**：Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International（CC BY-NC-SA 4.0）。
