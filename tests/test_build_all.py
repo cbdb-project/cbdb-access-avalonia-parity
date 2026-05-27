@@ -30,10 +30,14 @@ def fake_pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     class _Cfg:
         datadump_dir = tmp_path
         build_output_dir = build_dir
+        access_mysql_transfer_repo = tmp_path  # xlsx loader is patched out
 
     monkeypatch.setattr(ba_mod, "load_config", lambda: _Cfg())
     monkeypatch.setattr(ba_mod, "find_latest_datadump", lambda _: fake_info)
     monkeypatch.setattr(ba_mod, "refresh_all", lambda _cfg: [])
+    # mdb builder needs an AccessSchema from disk; fake out the loader.
+    from cbdb_parity.access_schema import AccessSchema
+    monkeypatch.setattr(ba_mod, "load_access_schema", lambda _path: AccessSchema())
 
     # Patch DatadumpInfo.sha256 to a deterministic value without re-hashing
     # the empty archive bytes (which would give a real SHA we'd then have
@@ -54,13 +58,23 @@ def fake_pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
         return _Ctx()
     monkeypatch.setattr(ba_mod, "open_dump_stream", fake_open)
 
-    from cbdb_parity.sqlite_builder import BuildStats
+    from cbdb_parity.sqlite_builder import BuildStats as SqliteStats
 
     def fake_build(stream, out_path, **_kw):
         out_path.touch()
-        return BuildStats(tables_created=2, rows_inserted=5, tables_skipped=["CBDB__x"])
+        return SqliteStats(tables_created=2, rows_inserted=5, tables_skipped=["CBDB__x"])
 
     monkeypatch.setattr(ba_mod, "build_sqlite", fake_build)
+
+    # mdb builder fake: same shape, different stat class but tests only
+    # check via the manifest's product entries.
+    from cbdb_parity.mdb_builder import BuildStats as MdbStats
+
+    def fake_build_mdb(stream, out_path, **_kw):
+        out_path.touch()
+        return MdbStats(tables_created=3, rows_inserted=7, tables_skipped=["CBDB__y"])
+
+    monkeypatch.setattr(ba_mod, "build_mdb", fake_build_mdb)
 
     # Manifest path comes from `_manifest_path()` which uses
     # find_dotenv(usecwd=True). Patch it for tests so we don't depend on
@@ -208,8 +222,10 @@ def test_build_all_drops_sibling_when_path_outside_build_dir(
     rc = build_all()
     assert rc == 0
     payload = json.loads(fake_pipeline.read_text(encoding="utf-8"))
-    # Sibling dropped because its path isn't under the current build dir.
-    assert set(payload["products"]) == {"sqlite"}
+    # The stale-path mdb entry is dropped; a freshly-built mdb at the
+    # current BUILD_OUTPUT_DIR replaces it.
+    assert set(payload["products"]) == {"sqlite", "mdb"}
+    assert payload["products"]["mdb"]["rows_inserted"] == 7  # the fake mdb's rowcount
 
 
 def test_build_all_drops_sibling_when_file_missing(
@@ -227,7 +243,8 @@ def test_build_all_drops_sibling_when_file_missing(
     rc = build_all()
     assert rc == 0
     payload = json.loads(fake_pipeline.read_text(encoding="utf-8"))
-    assert set(payload["products"]) == {"sqlite"}
+    # Stale sibling dropped; freshly-built mdb takes its place.
+    assert set(payload["products"]) == {"sqlite", "mdb"}
 
 
 def test_build_all_sha_hash_failure_returns_1(
@@ -298,6 +315,38 @@ def test_load_manifest_treats_non_object_json_as_empty(tmp_path: Path) -> None:
     assert _load_manifest(bad) == {}
     bad.write_text(_json.dumps(42), encoding="utf-8")
     assert _load_manifest(bad) == {}
+
+
+def test_build_all_strips_mdb_entry_when_mdb_rebuild_fails(
+    fake_pipeline: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """A failed mdb rebuild must remove the mdb entry from the manifest
+    too — leaving it dangling would let a later run treat the (deleted/
+    partial) mdb as a valid cached product."""
+    # First, a successful run so the manifest has both products.
+    rc1 = build_all()
+    assert rc1 == 0
+    payload_before = json.loads(fake_pipeline.read_text(encoding="utf-8"))
+    assert "mdb" in payload_before["products"]
+
+    # Now force the mdb rebuild to fail.
+    def failing_mdb(stream, out_path, **_kw):
+        out_path.write_bytes(b"\x00" * 32)  # simulate a partial mdb
+        raise RuntimeError("simulated mdb mid-build failure")
+
+    monkeypatch.setattr(ba_mod, "build_mdb", failing_mdb)
+    rc2 = build_all(rebuild=True)
+    assert rc2 == 1
+
+    # Partial mdb is gone.
+    mdb_path = tmp_path / "build" / "cbdb_data.mdb"
+    assert not mdb_path.exists()
+    # Manifest stripped mdb entry (and sqlite too, since the failure
+    # handler clears both same-SHA build targets).
+    payload_after = json.loads(fake_pipeline.read_text(encoding="utf-8"))
+    assert "mdb" not in payload_after.get("products", {})
 
 
 def test_build_all_drops_stale_siblings_on_sha_change_then_failure(
@@ -376,6 +425,7 @@ def test_build_all_does_not_use_cache_when_output_path_changed(
     class _AltCfg:
         datadump_dir = tmp_path
         build_output_dir = new_build_dir
+        access_mysql_transfer_repo = tmp_path
 
     monkeypatch.setattr(ba_mod, "load_config", lambda: _AltCfg())
 
@@ -445,9 +495,14 @@ def test_build_all_clears_stale_products_on_sha_change(
     assert rc == 0
     payload = json.loads(fake_pipeline.read_text(encoding="utf-8"))
     assert payload["datadump"]["sha256"] == "deadbeef" * 8
-    # Only sqlite — the stale mdb from the old SHA must be gone.
-    assert set(payload["products"]) == {"sqlite"}
+    # Both sqlite and mdb were rebuilt from the new SHA; the OLD stale
+    # mdb entry (rows_inserted=999 from the seeded oldsha) is gone,
+    # replaced by the new mdb fake (rows_inserted=7).
+    assert set(payload["products"]) == {"sqlite", "mdb"}
     assert payload["products"]["sqlite"]["rows_inserted"] == 5
+    assert payload["products"]["mdb"]["rows_inserted"] == 7
+    # Sanity: not the stale "rows_inserted: 999" we seeded.
+    assert payload["products"]["mdb"]["rows_inserted"] != 999
 
 
 def test_cli_main_passes_rebuild_flag(

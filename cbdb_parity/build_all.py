@@ -1,7 +1,7 @@
 """Single-entrypoint build orchestrator (Phase 1.4).
 
 Picks the latest Datadump, refreshes the four external repos, and runs
-each sub-builder (Phase 1.2 sqlite, eventually Phase 1.3b mdb) IF the
+each sub-builder (Phase 1.2 sqlite, Phase 1.3b mdb) IF the
 build_manifest.json doesn't already record a successful build of that
 product against the current Datadump SHA. Pass `--rebuild` to force a
 full rebuild even when the manifest matches.
@@ -12,9 +12,9 @@ CLIs (Phase 1.2 `cbdb-parity-build-sqlite`, Phase 1.3b `cbdb-parity-
 build-mdb`) overwrite their own product slot but rely on the orchestrator
 to anchor everything to one SHA.
 
-Phase 1.3b (mdb writer) is not yet implemented — when it lands here it
-slots in as another `_build_mdb_if_needed` call alongside the sqlite one,
-no other plumbing changes.
+Both sub-builders run in a single invocation, with same-SHA caching and
+shared partial-write protection (failed rebuilds unlink the partial
+output and strip the stale manifest entry).
 """
 
 from __future__ import annotations
@@ -30,13 +30,15 @@ from pathlib import Path
 
 from dotenv import find_dotenv
 
-from cbdb_parity.config import ConfigError, load_config
+from cbdb_parity.access_schema import AccessSchemaError, load_access_schema
+from cbdb_parity.config import Config, ConfigError, load_config
 from cbdb_parity.datadump import (
     DatadumpError,
     DatadumpInfo,
     find_latest_datadump,
     open_dump_stream,
 )
+from cbdb_parity.mdb_builder import MdbBuilderError, build_mdb
 from cbdb_parity.mysqldump import MysqlDumpError
 from cbdb_parity.refresh import RefreshError, refresh_all
 from cbdb_parity.sqlite_builder import build_sqlite
@@ -115,6 +117,51 @@ def _write_manifest(
         "products": products,
     }
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _build_mdb_if_needed(
+    info: DatadumpInfo,
+    sha: str,
+    out_path: Path,
+    cfg: Config,
+    existing: dict[str, object],
+    *,
+    rebuild: bool,
+) -> dict[str, object]:
+    """Build cbdb_data.mdb unless the manifest already records it for
+    this SHA at this path, with the file present. Mirrors
+    `_build_sqlite_if_needed` invariants."""
+    cached_entry: dict[str, object] | None = None
+    if _existing_product_sha_matches(existing, "mdb", sha):
+        candidate = existing.get("products", {}).get("mdb")  # type: ignore[union-attr]
+        if isinstance(candidate, dict) and candidate.get("path") == str(out_path):
+            cached_entry = candidate
+    if not rebuild and cached_entry is not None and out_path.is_file():
+        print(f"  [cached]   mdb     ({cached_entry.get('rows_inserted', 0):,} rows from prior build)")
+        return cached_entry
+
+    # Load the Access schema overlay (TablesFields.xlsx) — same content
+    # the standalone cbdb-parity-build-mdb CLI uses.
+    xlsx_path = cfg.access_mysql_transfer_repo / "TablesFields.xlsx"
+    schema_overlay = load_access_schema(xlsx_path)
+
+    t0 = time.time()
+    print(f"  [building] mdb     -> {out_path}")
+    with open_dump_stream(info) as stream:
+        stats = build_mdb(stream, out_path, access_schema=schema_overlay)
+    elapsed = time.time() - t0
+    print(
+        f"             {stats.tables_created} tables, "
+        f"{stats.rows_inserted:,} rows in {elapsed:.1f}s"
+    )
+    return {
+        "path": str(out_path),
+        "tables_created": stats.tables_created,
+        "tables_skipped": stats.tables_skipped,
+        "rows_inserted": stats.rows_inserted,
+        "built_at": datetime.now(UTC).isoformat(),
+        "elapsed_seconds": round(elapsed, 2),
+    }
 
 
 def _build_sqlite_if_needed(
@@ -246,6 +293,28 @@ def build_all(
                 if not sib_resolved.is_file():
                     continue
                 products[k] = v
+    mdb_out = cfg.build_output_dir / "cbdb_data.mdb"
+    mdb_pre_existed = mdb_out.is_file()
+    mdb_pre_mtime_ns = mdb_out.stat().st_mtime_ns if mdb_pre_existed else None
+
+    # Lazy import of the Access driver Error classes so the orchestrator
+    # can include them in the catch list without forcing pyodbc/pypyodbc
+    # to be importable on non-Windows. Uses a sentinel class (NOT empty
+    # tuple) — see mdb_builder._NoSuchError for the rationale.
+    from cbdb_parity.mdb_builder import _NoSuchError
+    _pyodbc_error: type[BaseException] = _NoSuchError
+    try:
+        import pyodbc as _pyodbc
+        _pyodbc_error = _pyodbc.Error
+    except ImportError:
+        pass
+    _pypyodbc_error: type[BaseException] = _NoSuchError
+    try:
+        import pypyodbc as _pypyodbc
+        _pypyodbc_error = _pypyodbc.Error  # type: ignore[attr-defined]
+    except (ImportError, AttributeError):
+        pass
+
     try:
         products["sqlite"] = _build_sqlite_if_needed(
             info=info,
@@ -254,7 +323,14 @@ def build_all(
             existing=existing,
             rebuild=rebuild,
         )
-        # Future: products["mdb"] = _build_mdb_if_needed(...) once Phase 1.3b lands.
+        products["mdb"] = _build_mdb_if_needed(
+            info=info,
+            sha=sha,
+            out_path=mdb_out,
+            cfg=cfg,
+            existing=existing,
+            rebuild=rebuild,
+        )
     except (
         MysqlDumpError,
         DatadumpError,
@@ -262,6 +338,11 @@ def build_all(
         OSError,
         RuntimeError,
         sqlite3.Error,
+        MdbBuilderError,
+        AccessSchemaError,
+        ImportError,
+        _pyodbc_error,
+        _pypyodbc_error,
     ) as exc:
         # DatadumpError reaches us through `open_dump_stream` for malformed
         # archives (e.g. missing cbdb_data.sql member); tarfile.TarError
@@ -282,6 +363,14 @@ def build_all(
                     sqlite_out.unlink()
                 except OSError:
                     pass
+        if mdb_out.is_file():
+            now_mtime_ns = mdb_out.stat().st_mtime_ns
+            touched = (not mdb_pre_existed) or (now_mtime_ns != mdb_pre_mtime_ns)
+            if touched:
+                try:
+                    mdb_out.unlink()
+                except OSError:
+                    pass
         # Reconcile the manifest. Two cases:
         #   - existing SHA matches new SHA: only the sqlite entry is stale
         #     (other products may be fine); strip just sqlite.
@@ -293,7 +382,11 @@ def build_all(
             existing_dd = existing.get("datadump")
             existing_sha = existing_dd.get("sha256") if isinstance(existing_dd, dict) else None
             if existing_sha == sha:
+                # Same SHA: only sqlite + mdb (the products we just
+                # tried to build) are stale; strip both so the manifest
+                # doesn't point at a deleted partial file.
                 existing["products"].pop("sqlite", None)  # type: ignore[union-attr]
+                existing["products"].pop("mdb", None)  # type: ignore[union-attr]
                 products_to_write = existing.get("products", {})
             else:
                 products_to_write = {}

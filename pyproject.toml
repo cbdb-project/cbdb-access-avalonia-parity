@@ -30,6 +30,11 @@ dependencies = [
 # the rest of the package without yelling about pyodbc.
 access = [
     "pyodbc>=5.0",
+    # pypyodbc is Windows-only, pure-Python; we use it ONLY for
+    # `pypyodbc.win_create_mdb()` to bootstrap an empty .mdb. All other
+    # mdb operations stay on the modern `pyodbc` (matching the proven
+    # shape of accessAndMySQLTransfer/mysql2access.ipynb).
+    "pypyodbc>=1.3.6",
     "pywinauto>=0.6.8",
 ]
 # Differential-harness runtime
@@ -49,6 +54,7 @@ Repository = "https://github.com/cbdb-project/cbdb-access-avalonia-parity"
 [project.scripts]
 cbdb-parity-refresh = "cbdb_parity.refresh:cli_main"
 cbdb-parity-build-sqlite = "cbdb_parity.sqlite_builder:cli_main"
+cbdb-parity-build-mdb = "cbdb_parity.mdb_builder:cli_main"
 cbdb-parity-build-all = "cbdb_parity.build_all:cli_main"
 
 [build-system]
