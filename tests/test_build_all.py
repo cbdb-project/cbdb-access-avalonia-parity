@@ -36,6 +36,10 @@ def fake_pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
         # Tests that exercise MariaDB explicitly set this to a real
         # MariaDbConfig and patch `ensure_imported`.
         mariadb = None
+        # Phase 1.6 added use_cache as the top-tier USE_CACHE switch.
+        # Tests here cover the FULL pipeline path; set to False so the
+        # short-circuit doesn't swallow them.
+        use_cache = False
 
     monkeypatch.setattr(ba_mod, "load_config", lambda: _Cfg())
     monkeypatch.setattr(ba_mod, "find_latest_datadump", lambda _: fake_info)
@@ -484,6 +488,7 @@ def test_build_all_does_not_use_cache_when_output_path_changed(
         build_output_dir = new_build_dir
         access_mysql_transfer_repo = tmp_path
         mariadb = None
+        use_cache = False
 
     monkeypatch.setattr(ba_mod, "load_config", lambda: _AltCfg())
 
@@ -634,6 +639,7 @@ def test_build_all_uses_mariadb_when_configured(
         build_output_dir = fake_pipeline.parent / "build"
         access_mysql_transfer_repo = fake_pipeline.parent
         mariadb = mariadb_cfg
+        use_cache = False
 
     monkeypatch.setattr(ba_mod, "load_config", lambda: _CfgWithMariadb())
 
@@ -694,6 +700,7 @@ def test_build_all_mariadb_failure_returns_1(
         build_output_dir = fake_pipeline.parent / "build"
         access_mysql_transfer_repo = fake_pipeline.parent
         mariadb = mariadb_cfg
+        use_cache = False
 
     monkeypatch.setattr(ba_mod, "load_config", lambda: _CfgWithMariadb())
 
@@ -714,3 +721,286 @@ def test_build_all_mariadb_failure_returns_1(
     rc = build_all()
     assert rc == 1
     assert builder_calls == [], "builders must not run after a MariaDB cache failure"
+
+
+def test_build_all_use_cache_short_circuits_when_products_exist(
+    fake_pipeline: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """CBDB_PARITY_USE_CACHE=1 + valid .build products + consistent
+    manifest → exit 0 without touching Datadump / MariaDB / builders."""
+    build_dir = tmp_path / "build"
+    sqlite_path = build_dir / "cbdb.sqlite"
+    mdb_path = build_dir / "cbdb_data.mdb"
+    sqlite_path.write_bytes(b"sqlite content")
+    mdb_path.write_bytes(b"mdb content")
+
+    fake_pipeline.write_text(json.dumps({
+        "version": 1,
+        "datadump": {"filename": "x.tar.gz", "sha256": "deadbeef" * 8, "date_tag": "20260101"},
+        "products": {
+            "sqlite": {"path": str(sqlite_path), "rows_inserted": 100},
+            "mdb": {"path": str(mdb_path), "rows_inserted": 100},
+        },
+    }), encoding="utf-8")
+
+    class _CfgCache:
+        datadump_dir = tmp_path
+        build_output_dir = build_dir
+        access_mysql_transfer_repo = tmp_path
+        mariadb = None
+        use_cache = True
+    monkeypatch.setattr(ba_mod, "load_config", lambda: _CfgCache())
+
+    # Anything past the refresh step would explode if reached.
+    def _explode(*_a: object, **_kw: object) -> None:
+        raise AssertionError("USE_CACHE=1 short-circuit must not call this")
+    monkeypatch.setattr(ba_mod, "find_latest_datadump", _explode)
+    monkeypatch.setattr(ba_mod, "ensure_imported", _explode)
+    monkeypatch.setattr(ba_mod, "_build_sqlite_if_needed", _explode)
+    monkeypatch.setattr(ba_mod, "_build_mdb_if_needed", _explode)
+
+    rc = build_all()
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "[cache hit]" in out
+
+
+def test_build_all_use_cache_falls_through_when_product_missing(
+    fake_pipeline: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """USE_CACHE=1 + manifest claims products but one file is missing
+    on disk → fall through to the full pipeline (don't trust a manifest
+    that lies)."""
+    build_dir = tmp_path / "build"
+    sqlite_path = build_dir / "cbdb.sqlite"
+    mdb_path = build_dir / "cbdb_data.mdb"
+    sqlite_path.write_bytes(b"sqlite")
+    # mdb_path intentionally NOT created.
+
+    fake_pipeline.write_text(json.dumps({
+        "version": 1,
+        "datadump": {"filename": "x.tar.gz", "sha256": "deadbeef" * 8, "date_tag": "20260101"},
+        "products": {
+            "sqlite": {"path": str(sqlite_path)},
+            "mdb": {"path": str(mdb_path)},
+        },
+    }), encoding="utf-8")
+
+    class _CfgCache:
+        datadump_dir = tmp_path
+        build_output_dir = build_dir
+        access_mysql_transfer_repo = tmp_path
+        mariadb = None
+        use_cache = True
+    monkeypatch.setattr(ba_mod, "load_config", lambda: _CfgCache())
+
+    # Cache short-circuit must NOT fire — find_latest_datadump should run.
+    called = {"datadump": False}
+    def _spy_find(_dir: Path) -> object:
+        called["datadump"] = True
+        # Raise to short-stop the test before the rest of the pipeline.
+        raise DatadumpError("test stops here after cache miss verified")
+    monkeypatch.setattr(ba_mod, "find_latest_datadump", _spy_find)
+
+    rc = build_all()
+    assert called["datadump"] is True
+    assert rc == 2  # DatadumpError → config-style exit
+
+
+def test_build_all_mariadb_force_reimport_bypasses_use_cache(
+    fake_pipeline: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """USE_CACHE=1 + MARIADB_FORCE_REIMPORT=1 → bypass the cache
+    short-circuit. The user is signaling 'rebuild MariaDB from
+    scratch', which implies the downstream products are stale too."""
+    from cbdb_parity.config import MariaDbConfig
+
+    build_dir = tmp_path / "build"
+    sqlite_path = build_dir / "cbdb.sqlite"
+    mdb_path = build_dir / "cbdb_data.mdb"
+    sqlite_path.write_bytes(b"x")
+    mdb_path.write_bytes(b"y")
+    fake_pipeline.write_text(json.dumps({
+        "version": 1,
+        "datadump": {"filename": "x.tar.gz", "sha256": "deadbeef" * 8, "date_tag": "20260101"},
+        "products": {
+            "sqlite": {"path": str(sqlite_path)},
+            "mdb": {"path": str(mdb_path)},
+        },
+    }), encoding="utf-8")
+
+    mariadb_cfg = MariaDbConfig(
+        host="localhost", port=3306, user="root", password="x",
+        database="cbdb_data", container_name="x",
+        force_reimport=True,  # the override
+        auto_launch=False,
+    )
+
+    class _Cfg:
+        datadump_dir = tmp_path
+        build_output_dir = build_dir
+        access_mysql_transfer_repo = tmp_path
+        mariadb = mariadb_cfg
+        use_cache = True
+    monkeypatch.setattr(ba_mod, "load_config", lambda: _Cfg())
+
+    called = {"datadump": False}
+    def _spy_find(_dir: Path) -> object:
+        called["datadump"] = True
+        raise DatadumpError("test stops here after FORCE_REIMPORT bypass verified")
+    monkeypatch.setattr(ba_mod, "find_latest_datadump", _spy_find)
+
+    rc = build_all()
+    assert called["datadump"] is True, (
+        "MARIADB_FORCE_REIMPORT=1 must defeat the USE_CACHE=1 short-circuit"
+    )
+    assert rc == 2
+
+
+def test_build_all_use_cache_invalidated_by_access_schema_refresh(
+    fake_pipeline: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """USE_CACHE=1 + valid products + manifest BUT ACCESS_MYSQL_TRANSFER_REPO
+    just fast-forwarded → fall through. The mdb's CREATE TABLE depends on
+    that repo's TablesFields.xlsx, so a refreshed xlsx may have changed the
+    expected mdb shape even when the Datadump SHA is unchanged."""
+    build_dir = tmp_path / "build"
+    sqlite_path = build_dir / "cbdb.sqlite"
+    mdb_path = build_dir / "cbdb_data.mdb"
+    sqlite_path.write_bytes(b"x")
+    mdb_path.write_bytes(b"y")
+    fake_pipeline.write_text(json.dumps({
+        "version": 1,
+        "datadump": {"filename": "x.tar.gz", "sha256": "deadbeef" * 8, "date_tag": "20260101"},
+        "products": {
+            "sqlite": {"path": str(sqlite_path)},
+            "mdb": {"path": str(mdb_path)},
+        },
+    }), encoding="utf-8")
+
+    class _CfgCache:
+        datadump_dir = tmp_path
+        build_output_dir = build_dir
+        access_mysql_transfer_repo = tmp_path
+        mariadb = None
+        use_cache = True
+    monkeypatch.setattr(ba_mod, "load_config", lambda: _CfgCache())
+
+    # Simulate refresh saying ACCESS_MYSQL_TRANSFER_REPO updated.
+    monkeypatch.setattr(ba_mod, "refresh_all", lambda _cfg: [
+        RefreshResult("ACCESS_TESTS_REPO", Path("/a"), True, "aa", "aa", "Already up to date."),
+        RefreshResult("AVALONIA_REPO", Path("/b"), True, "bb", "bb", "Already up to date."),
+        RefreshResult("ONLINE_SERVER_REPO", Path("/c"), True, "cc", "cc", "Already up to date."),
+        RefreshResult("ACCESS_MYSQL_TRANSFER_REPO", Path("/d"), True, "dd0", "dd1", "Fast-forwarded."),
+    ])
+
+    called = {"datadump": False}
+    def _spy_find(_dir: Path) -> object:
+        called["datadump"] = True
+        raise DatadumpError("test stops here after invalidation verified")
+    monkeypatch.setattr(ba_mod, "find_latest_datadump", _spy_find)
+
+    rc = build_all()
+    assert called["datadump"] is True, (
+        "ACCESS_MYSQL_TRANSFER_REPO refresh must invalidate USE_CACHE so "
+        "the full pipeline (and thus the mdb rebuild) runs"
+    )
+    assert rc == 2
+
+
+def test_build_all_use_cache_survives_other_repo_refresh(
+    fake_pipeline: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """USE_CACHE=1 + the OTHER three repos refreshed → still cache hit.
+    The Avalonia / mdb-tests / online-server repos affect Phase 3 tests
+    downstream but NOT build_all's products."""
+    build_dir = tmp_path / "build"
+    sqlite_path = build_dir / "cbdb.sqlite"
+    mdb_path = build_dir / "cbdb_data.mdb"
+    sqlite_path.write_bytes(b"x")
+    mdb_path.write_bytes(b"y")
+    fake_pipeline.write_text(json.dumps({
+        "version": 1,
+        "datadump": {"filename": "x.tar.gz", "sha256": "deadbeef" * 8, "date_tag": "20260101"},
+        "products": {
+            "sqlite": {"path": str(sqlite_path)},
+            "mdb": {"path": str(mdb_path)},
+        },
+    }), encoding="utf-8")
+
+    class _CfgCache:
+        datadump_dir = tmp_path
+        build_output_dir = build_dir
+        access_mysql_transfer_repo = tmp_path
+        mariadb = None
+        use_cache = True
+    monkeypatch.setattr(ba_mod, "load_config", lambda: _CfgCache())
+
+    monkeypatch.setattr(ba_mod, "refresh_all", lambda _cfg: [
+        RefreshResult("ACCESS_TESTS_REPO", Path("/a"), True, "aa0", "aa1", "Fast-forwarded."),
+        RefreshResult("AVALONIA_REPO", Path("/b"), True, "bb0", "bb1", "Fast-forwarded."),
+        RefreshResult("ONLINE_SERVER_REPO", Path("/c"), True, "cc0", "cc1", "Fast-forwarded."),
+        RefreshResult("ACCESS_MYSQL_TRANSFER_REPO", Path("/d"), True, "dd", "dd", "Already up to date."),
+    ])
+
+    def _explode(*_a: object, **_kw: object) -> None:
+        raise AssertionError("USE_CACHE=1 must short-circuit on non-schema-repo refresh")
+    monkeypatch.setattr(ba_mod, "find_latest_datadump", _explode)
+
+    rc = build_all()
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "[cache hit]" in out
+
+
+def test_build_all_rebuild_flag_overrides_use_cache(
+    fake_pipeline: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """USE_CACHE=1 + --rebuild → ignore cache short-circuit and run the
+    full pipeline. Lets users force a fresh rebuild without flipping
+    the env switch."""
+    build_dir = tmp_path / "build"
+    sqlite_path = build_dir / "cbdb.sqlite"
+    mdb_path = build_dir / "cbdb_data.mdb"
+    sqlite_path.write_bytes(b"x")
+    mdb_path.write_bytes(b"y")
+    fake_pipeline.write_text(json.dumps({
+        "version": 1,
+        "datadump": {"filename": "x.tar.gz", "sha256": "deadbeef" * 8, "date_tag": "20260101"},
+        "products": {
+            "sqlite": {"path": str(sqlite_path)},
+            "mdb": {"path": str(mdb_path)},
+        },
+    }), encoding="utf-8")
+
+    class _CfgCache:
+        datadump_dir = tmp_path
+        build_output_dir = build_dir
+        access_mysql_transfer_repo = tmp_path
+        mariadb = None
+        use_cache = True
+    monkeypatch.setattr(ba_mod, "load_config", lambda: _CfgCache())
+
+    called = {"datadump": False}
+    def _spy_find(_dir: Path) -> object:
+        called["datadump"] = True
+        raise DatadumpError("test stops here after rebuild=True verified")
+    monkeypatch.setattr(ba_mod, "find_latest_datadump", _spy_find)
+
+    rc = build_all(rebuild=True)
+    assert called["datadump"] is True
+    assert rc == 2

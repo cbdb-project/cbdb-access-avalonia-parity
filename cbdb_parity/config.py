@@ -26,6 +26,17 @@ REQUIRED_KEYS: tuple[str, ...] = (
     "BUILD_OUTPUT_DIR",
 )
 
+# Top-tier build cache switch. When `1` (default) AND both .build
+# products exist AND build_manifest.json records them with matching
+# paths, `build_all` short-circuits right after the refresh step:
+# no Datadump scan, no MariaDB connect, no builder run. When `0`,
+# the full pipeline runs every time (downstream MariaDB / manifest
+# layers still cache by SHA, so a same-SHA run still finishes
+# quickly, but the cost of touching Datadump + connecting to MariaDB
+# is paid every time).
+_USE_CACHE_KEY: str = "CBDB_PARITY_USE_CACHE"
+_USE_CACHE_DEFAULT: str = "1"
+
 # MariaDB intermediate cache (Phase 1.6 / WORK_PLAN §4d). Required when
 # `Config.has_mariadb` is consulted; absence of these keys is NOT an
 # error at load_config() time because the Datadump-direct fallback path
@@ -44,6 +55,13 @@ MARIADB_OPTIONAL_KEYS: tuple[tuple[str, str], ...] = (
     ("MARIADB_CONTAINER_NAME", "cbdb-parity-mariadb"),
     ("MARIADB_FORCE_REIMPORT", "0"),
     ("MARIADB_AUTO_LAUNCH", "0"),
+)
+
+# Top-tier cache switch is documented in .env.sample as an optional
+# key with default `1`. Listed here so the `.env.sample` ↔ config
+# drift canary in test_config.py picks it up.
+OPTIONAL_KEYS_WITH_DEFAULTS: tuple[tuple[str, str], ...] = (
+    (_USE_CACHE_KEY, _USE_CACHE_DEFAULT),
 )
 
 # Keys whose values must be existing directories on disk at config-load time.
@@ -118,6 +136,7 @@ class Config:
     mysql2access_dir: Path
     build_output_dir: Path
     mariadb: MariaDbConfig | None = None
+    use_cache: bool = True
 
     def refresh_targets(self) -> dict[str, Path]:
         """Return the four git-repo paths that must be `git pull`'d per run.
@@ -224,6 +243,10 @@ def load_config(env_path: Path | None = None) -> Config:
     # the documented "failing load_config() leaves the FS untouched"
     # invariant (codex P2).
     mariadb_cfg = _load_mariadb_config(file_values)
+    use_cache = _parse_bool(
+        (file_values.get(_USE_CACHE_KEY) or _USE_CACHE_DEFAULT),
+        key=_USE_CACHE_KEY,
+    )
 
     for key in WRITABLE_KEYS:
         try:
@@ -246,6 +269,7 @@ def load_config(env_path: Path | None = None) -> Config:
         mysql2access_dir=resolved["MYSQL2ACCESS_DIR"],
         build_output_dir=resolved["BUILD_OUTPUT_DIR"],
         mariadb=mariadb_cfg,
+        use_cache=use_cache,
     )
 
 

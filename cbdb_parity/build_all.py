@@ -43,7 +43,7 @@ from cbdb_parity.mariadb import MariaDbError, ensure_imported
 from cbdb_parity.mariadb_source import iter_events as mariadb_iter_events
 from cbdb_parity.mdb_builder import MdbBuilderError, build_mdb, build_mdb_from_events
 from cbdb_parity.mysqldump import MysqlDumpError
-from cbdb_parity.refresh import RefreshError, refresh_all
+from cbdb_parity.refresh import RefreshError, RefreshResult, refresh_all
 from cbdb_parity.sqlite_builder import build_sqlite, build_sqlite_from_events
 
 _MANIFEST_NAME = "build_manifest.json"
@@ -120,6 +120,87 @@ def _write_manifest(
         "products": products,
     }
     path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
+
+
+def _try_use_cache(
+    cfg: Config,
+    refresh_results: list[RefreshResult],
+) -> str | None:
+    """Top-tier cache check (CBDB_PARITY_USE_CACHE=1 path).
+
+    Returns a human-readable success message when the cache should be
+    reused (caller exits 0), or None when the cache is incomplete /
+    inconsistent (caller falls through to the full pipeline).
+
+    Conditions for a cache hit, ALL of which must hold:
+      1. `build_manifest.json` exists, parses as a dict, and records a
+         non-empty `datadump.sha256` plus both `products.sqlite` and
+         `products.mdb` entries.
+      2. The recorded `products.sqlite.path` resolves to
+         `cfg.build_output_dir / 'cbdb.sqlite'`, exists on disk, and
+         is non-empty.
+      3. The recorded `products.mdb.path` resolves to
+         `cfg.build_output_dir / 'cbdb_data.mdb'`, exists on disk, and
+         is non-empty.
+      4. `ACCESS_MYSQL_TRANSFER_REPO` did NOT fast-forward during this
+         run's refresh — `mdb_builder` derives column types and the
+         skip list from `$ACCESS_MYSQL_TRANSFER_REPO/TablesFields.xlsx`,
+         so a refreshed repo can change the EXPECTED mdb shape even
+         when the Datadump SHA is unchanged. The other three external
+         repos affect downstream parity tests (cbdb-desktop-app SQL,
+         cbdb-user-mdb-tests cbdb_replay code, cbdb-online-main-server
+         reference) but not the build products themselves.
+
+    This short-circuit deliberately does NOT consult `cfg.datadump_dir`
+    — when the cache is valid the user has told us (via USE_CACHE=1)
+    not to invalidate the artifacts just because a newer Datadump
+    archive sits in the input folder. To pick up a new Datadump set
+    USE_CACHE=0 (or pass `--rebuild`, or delete `.build/` products,
+    or `MARIADB_FORCE_REIMPORT=1` if only MariaDB is stale).
+    """
+    # (4) Schema repo updated → invalidate the cached mdb whose
+    # CREATE TABLE was derived from the OLD xlsx.
+    for r in refresh_results:
+        if r.key == "ACCESS_MYSQL_TRANSFER_REPO" and r.updated:
+            return None
+
+    manifest = _manifest_path()
+    existing = _load_manifest(manifest)
+    if not existing:
+        return None
+    dd = existing.get("datadump")
+    if not isinstance(dd, dict):
+        return None
+    sha = dd.get("sha256")
+    if not isinstance(sha, str) or not sha:
+        return None
+    products = existing.get("products")
+    if not isinstance(products, dict):
+        return None
+
+    expected = {
+        "sqlite": cfg.build_output_dir / "cbdb.sqlite",
+        "mdb": cfg.build_output_dir / "cbdb_data.mdb",
+    }
+    for key, target in expected.items():
+        entry = products.get(key)
+        if not isinstance(entry, dict):
+            return None
+        recorded = entry.get("path")
+        if not isinstance(recorded, str):
+            return None
+        try:
+            if Path(recorded).resolve() != target.resolve():
+                return None
+        except OSError:
+            return None
+        if not target.is_file() or target.stat().st_size == 0:
+            return None
+    return (
+        f"[cache hit] using existing products at SHA {sha[:12]}; "
+        f"set CBDB_PARITY_USE_CACHE=0 (or pass --rebuild) to force a "
+        f"fresh Datadump scan / rebuild."
+    )
 
 
 def _build_mdb_if_needed(
@@ -291,6 +372,23 @@ def build_all(
     for r in results:
         tag = "updated" if r.updated else "up-to-date"
         print(f"  [{tag}] {r.key}")
+
+    # Top-tier cache short-circuit (CBDB_PARITY_USE_CACHE=1, default).
+    # If both products exist on disk AND the manifest records them at
+    # those exact paths with the same datadump SHA, we trust the cache
+    # and skip the Datadump scan / MariaDB import / builders entirely.
+    # `--rebuild` and `MARIADB_FORCE_REIMPORT=1` both override this
+    # path so users can still force fresh work without flipping the
+    # env switch.
+    # Any of `--rebuild`, `MARIADB_FORCE_REIMPORT=1`, or `use_cache=0`
+    # bypasses the top-tier short-circuit so the user's documented
+    # repair controls stay effective even at the default USE_CACHE=1.
+    mariadb_force = cfg.mariadb is not None and cfg.mariadb.force_reimport
+    if cfg.use_cache and not rebuild and not mariadb_force:
+        cached_status = _try_use_cache(cfg, results)
+        if cached_status is not None:
+            print(cached_status)
+            return 0
 
     # Datadump selection.
     try:

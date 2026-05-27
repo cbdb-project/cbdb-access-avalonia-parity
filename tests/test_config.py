@@ -135,7 +135,11 @@ def test_env_sample_keys_match_required_keys() -> None:
     each tuple). MariaDB keys are optional at load_config() time but
     documented in .env.sample.
     """
-    from cbdb_parity.config import MARIADB_OPTIONAL_KEYS, MARIADB_REQUIRED_KEYS
+    from cbdb_parity.config import (
+        MARIADB_OPTIONAL_KEYS,
+        MARIADB_REQUIRED_KEYS,
+        OPTIONAL_KEYS_WITH_DEFAULTS,
+    )
 
     sample = Path(__file__).resolve().parent.parent / ".env.sample"
     declared = set()
@@ -150,12 +154,37 @@ def test_env_sample_keys_match_required_keys() -> None:
         set(REQUIRED_KEYS)
         | set(MARIADB_REQUIRED_KEYS)
         | {k for k, _ in MARIADB_OPTIONAL_KEYS}
+        | {k for k, _ in OPTIONAL_KEYS_WITH_DEFAULTS}
     )
     assert declared == expected, (
         f".env.sample keys diverged from config.py.\n"
         f"  In sample but not declared: {declared - expected}\n"
         f"  Declared but not in sample: {expected - declared}"
     )
+
+
+def test_use_cache_defaults_to_true_when_absent(fake_env: Path) -> None:
+    """CBDB_PARITY_USE_CACHE absent from .env → default True so
+    fresh installs trust the cache out of the box."""
+    cfg = load_config(fake_env)
+    assert cfg.use_cache is True
+
+
+def test_use_cache_explicit_zero(fake_env: Path) -> None:
+    """`CBDB_PARITY_USE_CACHE=0` disables the top-tier cache short-circuit."""
+    text = fake_env.read_text(encoding="utf-8")
+    fake_env.write_text(text + "\nCBDB_PARITY_USE_CACHE=0\n", encoding="utf-8")
+    cfg = load_config(fake_env)
+    assert cfg.use_cache is False
+
+
+def test_use_cache_invalid_value_raises(fake_env: Path) -> None:
+    """A non-boolean USE_CACHE value must fail load_config(), not silently
+    fall back to True/False."""
+    text = fake_env.read_text(encoding="utf-8")
+    fake_env.write_text(text + "\nCBDB_PARITY_USE_CACHE=sometimes\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="CBDB_PARITY_USE_CACHE"):
+        load_config(fake_env)
 
 
 def test_mariadb_absent_keys_yields_mariadb_none(fake_env: Path) -> None:
