@@ -143,6 +143,18 @@ def entry_query_access(
     field names, so they can be diffed directly against
     `cbdb_parity.avalonia_query.entry_query(...)` output.
 
+    Ordering / limit: mirrors what the Avalonia SQL appends:
+        ORDER BY entry_label, ed.c_year, b.c_personid, ed.c_sequence
+        LIMIT :limit
+    cbdb_replay doesn't join ENTRY_CODES (so `entry_label` isn't on
+    each row), but for a SINGLE entry_code filter the label is
+    constant and `(year, person_id, sequence)` is a strict prefix of
+    the Avalonia order. For multi-code requests, the Access side
+    sorts by `(entry_code, year, person_id, sequence)` so that two
+    rows with different codes are at least in a stable canonical
+    order even though the precise position relative to Avalonia's
+    Chinese-collation `entry_label` may differ at code boundaries.
+
     `access_tests_repo` is `cfg.access_tests_repo` from .env; resolved
     at the call site.
     """
@@ -157,13 +169,46 @@ def entry_query_access(
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
         rf"DBQ={mdb_path};"
     )
-    rows: list[dict[str, Any]] = []
     with pyodbc.connect(conn_str) as conn:
         df = replay_run(conn, inputs)
-        # df is a pandas DataFrame with cbdb_replay's column shape.
-        for record in df.to_dict("records"):
-            rows.append(_replay_row_to_avalonia_shape(record))
-    return rows
+        # Load the ENTRY_CODES label map so we can mirror Avalonia's
+        # `ORDER BY entry_label, year, personid, sequence LIMIT N`
+        # exactly. ENTRY_CODES is small (~700 rows); fetching the whole
+        # table once is cheaper than a per-row JOIN.
+        cursor = conn.cursor()
+        cursor.execute("SELECT c_entry_code, c_entry_desc, c_entry_desc_chn FROM ENTRY_CODES")
+        entry_labels: dict[int, str | None] = {}
+        for code, desc, desc_chn in cursor.fetchall():
+            # Avalonia uses COALESCE(c_entry_desc_chn, c_entry_desc) —
+            # which falls back ONLY for NULL, not for empty string.
+            # Mirroring `desc_chn is not None` (NOT `if desc_chn`).
+            entry_labels[int(code)] = desc_chn if desc_chn is not None else desc
+        cursor.close()
+
+    records = df.to_dict("records")
+
+    # Avalonia clamps limit to [1, 10000]; mirror that contract.
+    effective_limit = max(1, min(request.limit, 10000))
+
+    def _sort_key(r: dict[str, Any]) -> tuple[Any, ...]:
+        code = r.get("c_entry_code")
+        label = entry_labels.get(int(code), "") if code is not None else ""
+        # Pad with sentinels for None so the sort is stable + total.
+        # Note: Python's default string ordering is codepoint-based —
+        # SQLite's ORDER BY on a TEXT column is also codepoint-based by
+        # default (no COLLATE specified in the Avalonia SQL), so the
+        # primary `entry_label` key sorts identically on both sides.
+        return (
+            label if label is not None else "",
+            r.get("c_year") if r.get("c_year") is not None else -10**9,
+            r.get("c_personid") if r.get("c_personid") is not None else -1,
+            r.get("c_sequence") if r.get("c_sequence") is not None else -1,
+        )
+
+    records.sort(key=_sort_key)
+    records = records[:effective_limit]
+
+    return [_replay_row_to_avalonia_shape(r) for r in records]
 
 
 __all__ = [

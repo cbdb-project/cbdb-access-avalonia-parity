@@ -127,6 +127,9 @@ def _build_entry_query_sql(
             sql += f"\n  AND ed.c_entry_addr_id IN ({place_in})"
 
     # 4. trailing ORDER BY + LIMIT.
+    # Faithful replay: keep Avalonia's exact ORDER BY. The Access bridge
+    # in `access_query.entry_query_access` mirrors this ordering via a
+    # post-fetch entry_label lookup so the LIMIT cutoffs align.
     sql += "\n\nORDER BY entry_label, ed.c_year, b.c_personid, ed.c_sequence\nLIMIT :limit;"
 
     # Bind values.
