@@ -1,0 +1,98 @@
+# --- Environment & secrets ---
+.env
+.env.local
+*.env.local
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+.uv/
+.python-version
+pip-log.txt
+pip-delete-this-directory.txt
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.hypothesis/
+
+# --- .NET (Avalonia test host etc.) ---
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+.vs/
+
+# --- PHP (composer cache if we ever shell out to Laravel) ---
+vendor/
+composer.phar
+
+# --- Node (if we add any tooling) ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# --- Build outputs / scratch ---
+.build/
+build/
+dist/
+scratch/
+tmp/
+*.tmp
+
+# --- Generated databases (never commit; rebuild from Datadump) ---
+*.mdb
+*.accdb
+*.laccdb
+*.sqlite
+*.sqlite3
+*.db
+
+# --- Cached Datadump extractions ---
+.datadump_cache/
+*.tar.gz.extracted/
+# Belt-and-braces: never commit raw Datadump archives even if copied here by accident
+*.tar.gz
+*.rar
+*.7z
+
+# --- Reports artefacts ---
+# Per-query layout is reports/<query_id>/{access.json, avalonia.json,
+# diff.json, summary.md, hypothesis.md}. The two raw-side dumps can be
+# very large and are always regenerable from the source databases, so
+# they are NOT committed. The canonical diff and the markdown narrative
+# ARE committed — that is the deliverable trail of each parity run.
+reports/**/access.json
+reports/**/avalonia.json
+reports/**/*.csv
+reports/**/*.parquet
+
+# build_manifest.json lives at repo root (data-version provenance) and is
+# committed. Nothing above ignores it, so no negation needed; this comment
+# exists to document the intent.
+
+# --- OS / editor noise ---
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+.idea/
+.vscode/
+*.code-workspace
