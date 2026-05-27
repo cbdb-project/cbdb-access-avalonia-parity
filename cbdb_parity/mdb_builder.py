@@ -370,17 +370,28 @@ def _drain(
 ) -> None:
     """Consume the parser event stream into `cursor`.
 
-    Commits per BATCH (every `_BATCH_ROWS`-row executemany), not just
-    per table. Empirical: even with per-table commits, a single big
-    table (BIOG_SOURCE_DATA at ~1.2M rows, BIOG_MAIN at ~658k, ...)
-    still overflows Jet's 2 GB transaction work-buffer mid-table on
-    the real May-27 Datadump — the build aborts with `HY001` around
-    250-270 MB written. Committing each 1000-row batch keeps the
-    work-buffer bounded at one batch's worth of pages, at the cost of
-    one extra fsync per batch (which Jet does anyway since we have
-    no `synchronous=OFF`-style escape hatch). cbdb.mdb is ~792 MB
-    final; we routinely cleared 2 GB of accumulated work-buffer on
-    that workload before this fix.
+    INSERT row-by-row via `cursor.execute(sql, tuple(row))`, NOT
+    `cursor.executemany(sql, batch_of_N)`. Empirical: against the
+    Microsoft Access Driver, `executemany` triggers Jet's batch-
+    parameter path, which buffers all N rows' intermediate pages in
+    the transaction work-buffer and overflows the 2 GB hard ceiling
+    mid-table on real CBDB BIOG_* tables (~250-270 MB written before
+    HY001). The proven `accessAndMySQLTransfer/mysql2access.ipynb`
+    workflow — which produces a 792 MB cbdb.mdb on the same data —
+    uses single-row `execute()` and works because Jet processes each
+    INSERT as an independent write to the data pages, keeping the
+    transaction log down to per-row redo entries.
+
+    We commit once at the end of each table (after the last row of
+    that table), matching the ipynb's `cnxn.commit()` cadence. A
+    single Jet transaction over a whole CBDB table is fine when each
+    row is execute-then-flushed; it's the batched-parameter path that
+    overflows the buffer.
+
+    Tradeoff: row-by-row is slower per row than a true bulk-load,
+    but Jet is the throughput floor either way — the ipynb takes
+    ~hours to produce 792 MB and still completes, which is what we
+    need.
     """
     table_columns: dict[str, tuple[Column, ...]] = {}
     skipped: set[str] = set()
@@ -392,21 +403,25 @@ def _drain(
         nonlocal batch
         if not batch or batch_insert_sql is None:
             return
-        cursor.executemany(batch_insert_sql, batch)
+        # Row-by-row execute (NOT executemany) — see docstring above.
+        # Each call lets Jet write one row to a data page immediately;
+        # the transaction log only records per-row redo entries
+        # instead of N rows' worth of work-buffer pages.
+        for row in batch:
+            cursor.execute(batch_insert_sql, row)
         stats.rows_inserted += len(batch)
         batch = []
-        # Commit immediately so Jet releases the transaction
-        # work-buffer for this batch's pages before the next batch
-        # starts. See module docstring for why this is per-batch
-        # rather than per-table.
-        conn.commit()
 
     for ev in events:
         if isinstance(ev, TableSchema):
-            # End of prior table — flush the last batch (which also
-            # commits inside flush(), per the per-batch commit policy).
-            # No separate per-table commit needed.
+            # End of prior table — flush the last batch AND commit so
+            # Jet can finalise the table's pages and release the
+            # transaction log before the next table starts. Matches
+            # the mysql2access.ipynb cadence (one commit per table,
+            # row-by-row INSERTs inside the table).
             flush()
+            if batch_table is not None:
+                conn.commit()
             # Skip both CBDB__* (matching sqlite_builder default) and the
             # Laravel ops tables hard-listed in the notebook. The
             # `with_internal` flag only affects the CBDB__ check —
@@ -434,7 +449,17 @@ def _drain(
                 f"INSERT for table `{ev.table}` arrived before its CREATE TABLE"
             )
         if ev.table != batch_table:
+            # Interleaved-INSERT case (a, then b, then a again):
+            # flush AND commit the prior table's pending rows so the
+            # "one Jet transaction per table" policy holds even when
+            # the dump revisits earlier tables after CREATE TABLE
+            # boundaries. Without this commit, multi-table pages
+            # accumulate in one transaction and reintroduce the HY001
+            # work-buffer overflow the row-by-row pattern is trying
+            # to avoid (codex P1 finding).
             flush()
+            if batch_table is not None:
+                conn.commit()
             cols = table_columns[ev.table]
             placeholders = ", ".join("?" * len(cols))
             cols_quoted = ", ".join(f"[{c.name}]" for c in cols)
@@ -447,7 +472,10 @@ def _drain(
         if len(batch) >= _BATCH_ROWS:
             flush()
 
+    # Tail: last table's residual rows + a final commit so it lands.
     flush()
+    if batch_table is not None:
+        conn.commit()
 
 
 # --- manifest write (mirrors sqlite_builder._write_manifest) ----------------

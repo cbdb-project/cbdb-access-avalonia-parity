@@ -316,12 +316,18 @@ def test_build_creates_table_and_inserts(tmp_path: Path, fake_db) -> None:
     assert len(create_calls) == 1
     assert "[t]" in create_calls[0][0]
 
-    # INSERTs went via .executemany() with the 3-row batch.
-    assert len(conn.cursor_obj.executemany_calls) == 1
-    insert_sql, rows = conn.cursor_obj.executemany_calls[0]
-    assert "INSERT INTO [t]" in insert_sql
+    # INSERTs go via .execute() one row at a time (NOT executemany —
+    # Access ODBC's batched-parameter path overflows Jet's 2 GB
+    # transaction work-buffer on real CBDB tables; see
+    # mdb_builder._drain docstring).
+    assert conn.cursor_obj.executemany_calls == []
+    insert_calls = [c for c in conn.cursor_obj.execute_calls if "INSERT INTO [t]" in c[0]]
+    assert len(insert_calls) == 3
+    insert_sql = insert_calls[0][0]
     assert "[id]" in insert_sql and "[name]" in insert_sql
-    assert rows == [(1, "a"), (2, "b"), (3, "c")]
+    # FakeCursor.execute uses `*params`, so `cursor.execute(sql, row)`
+    # arrives as `params = (row,)`. Unwrap one level for comparison.
+    assert [c[1][0] for c in insert_calls] == [(1, "a"), (2, "b"), (3, "c")]
 
 
 def test_build_skips_cbdb_internal_tables_by_default(tmp_path: Path, fake_db) -> None:
@@ -378,12 +384,17 @@ def test_build_normalises_special_values(tmp_path: Path, fake_db) -> None:
         b"INSERT INTO `t` VALUES (1,'0000-00-00 00:00:00'),(2,'2024-01-01 12:00:00');"
     )
     _out, _stats, conn = _build(dump, tmp_path, fake_db)
-    rows = conn.cursor_obj.executemany_calls[0][1]
-    assert rows == [(1, None), (2, "2024-01-01 12:00:00")]
+    insert_params = [
+        c[1][0] for c in conn.cursor_obj.execute_calls
+        if "INSERT INTO [t]" in c[0]
+    ]
+    assert insert_params == [(1, None), (2, "2024-01-01 12:00:00")]
 
 
-def test_build_batches_at_1000_rows(tmp_path: Path, fake_db, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A 2500-row INSERT exercises the batch-flush path."""
+def test_build_inserts_each_row_via_execute(tmp_path: Path, fake_db, monkeypatch: pytest.MonkeyPatch) -> None:
+    """2500 rows produce 2500 single-row execute() calls (no executemany)
+    against Access ODBC — see mdb_builder._drain docstring for why the
+    proven `mysql2access.ipynb` pattern is row-by-row instead of batched."""
     import cbdb_parity.mdb_builder as mb_mod
     monkeypatch.setattr(mb_mod, "_BATCH_ROWS", 1000)
 
@@ -394,13 +405,14 @@ def test_build_batches_at_1000_rows(tmp_path: Path, fake_db, monkeypatch: pytest
     )
     _out, stats, conn = _build(dump, tmp_path, fake_db)
     assert stats.rows_inserted == 2500
-    # 2500 / 1000 = 3 batches (1000 + 1000 + 500).
-    assert len(conn.cursor_obj.executemany_calls) == 3
-    batch_sizes = [len(rows) for _sql, rows in conn.cursor_obj.executemany_calls]
-    assert batch_sizes == [1000, 1000, 500]
+    assert conn.cursor_obj.executemany_calls == []
+    insert_calls = [c for c in conn.cursor_obj.execute_calls if "INSERT INTO [t]" in c[0]]
+    assert len(insert_calls) == 2500
 
 
 def test_build_flushes_on_cross_table_interleaving(tmp_path: Path, fake_db) -> None:
+    """Cross-table INSERTs flush in order. Row-by-row execute means we
+    check insert sequence rather than batch count."""
     dump = (
         b"CREATE TABLE `a` (`x` int(11));"
         b"INSERT INTO `a` VALUES (1);"
@@ -411,9 +423,13 @@ def test_build_flushes_on_cross_table_interleaving(tmp_path: Path, fake_db) -> N
     )
     _out, stats, conn = _build(dump, tmp_path, fake_db)
     assert stats.rows_inserted == 4
-    # 4 separate executemany calls because each INSERT targets a different
-    # table than the previous batch_table.
-    assert len(conn.cursor_obj.executemany_calls) == 4
+    assert conn.cursor_obj.executemany_calls == []
+    insert_sequence = [
+        ("a" if "[a]" in c[0] else "b", c[1][0])
+        for c in conn.cursor_obj.execute_calls
+        if "INSERT INTO" in c[0]
+    ]
+    assert insert_sequence == [("a", (1,)), ("b", (10,)), ("a", (2,)), ("b", (20,))]
 
 
 def test_build_row_before_schema_raises(tmp_path: Path, fake_db) -> None:
@@ -440,8 +456,8 @@ def test_build_unicode_strings_pass_through(tmp_path: Path, fake_db) -> None:
     decodes UTF-8, and bytes-to-str pass straight through to pyodbc."""
     dump = "CREATE TABLE `t` (`n` varchar(255));INSERT INTO `t` VALUES ('中華民國');".encode()
     _out, _stats, conn = _build(dump, tmp_path, fake_db)
-    rows = conn.cursor_obj.executemany_calls[0][1]
-    assert rows == [("中華民國",)]
+    insert_params = [c[1][0] for c in conn.cursor_obj.execute_calls if "INSERT INTO [t]" in c[0]]
+    assert insert_params == [("中華民國",)]
 
 
 def test_build_uses_brackets_not_backticks_in_sql(tmp_path: Path, fake_db) -> None:
