@@ -67,7 +67,7 @@ decisions made in Chinese).
 
 ```powershell
 # 1. Configure local paths
-cp .env.sample .env
+Copy-Item .env.sample .env
 # edit .env with the real paths on your machine
 
 # 2. Refresh external repos and rebuild the two databases
