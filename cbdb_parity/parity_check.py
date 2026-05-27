@@ -5,11 +5,14 @@ both databases came from the same Datadump (Phase 1.4 orchestrator
 guarantees this), every common table should have identical row counts;
 any mismatch is a sign that one of the two build pipelines dropped rows.
 
-For Phase 1.5 the mdb side is optional — `count_sqlite_tables` works
-standalone for introspecting just the SQLite output, which is what the
-Phase 1.2 build smoke produces today. When the mdb side becomes
-available (existing CBDB_20260430_DATA.mdb under the user's Desktop, or
-the Phase 1.3b generated mdb), `compare_row_counts` joins the two.
+Per WORK_PLAN §1's strict-pipeline rule, the mdb side this check joins
+against MUST be the Phase 1.3b-generated `cbdb_data.mdb` built from the
+SAME Datadump archive that produced `cbdb.sqlite`. Pre-existing mdb
+files on the user's machine are NOT acceptable inputs — they would
+inject data-version drift into the comparison. While Phase 1.3b is
+still deferred, only `count_sqlite_tables` is callable in practice;
+`count_mdb_tables` and `compare_row_counts` remain exposed for Phase 3
+once 1.3b lands.
 
 Table-name matching is case-sensitive on purpose: case-divergence
 between mdb and sqlite (e.g. mdb's `CopyTablesDefault` vs sqlite's

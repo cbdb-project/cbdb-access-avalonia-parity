@@ -5,6 +5,17 @@ Build an independent comparison harness in `cbdb-access-avalonia-parity` that, f
 
 Note: both `cbdb-user-mdb-tests` and `cbdb-desktop-app` already contain partial sketches of this comparison work (e.g. `cbdb-user-mdb-tests/data/cbdb_online_sqlite/`, `cbdb-user-mdb-tests/.external/cbdb-desktop-app/`). The decision is to do this in its own repo rather than continue those sketches.
 
+**Strict-pipeline rule (no substitutions).** The build pipeline goes
+`Datadump → cbdb_data.mdb` AND `Datadump → cbdb.sqlite` in order, both
+from the *same* Datadump archive. Phase 3's differential harness MUST
+consume those generated artefacts. Pre-existing mdb files on the user's
+machine (e.g. `CBDB_BJ_20260430/CBDB_20260430_DATA.mdb`) are NOT
+acceptable substitutes — they were built from a different Datadump and
+would silently inject data-version drift into every parity comparison,
+which is the exact failure mode this repo is supposed to prevent.
+Phase 1.3b (the Datadump → mdb writer) is on the critical path; nothing
+downstream may shortcut around it.
+
 ## 2. Inputs (sourced via `.env`, never copied into the repo)
 
 | Key | What it points to | Example placeholder |

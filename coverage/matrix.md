@@ -97,9 +97,9 @@ WORK_PLAN §8 originally suggested "BIOG basic / office / kinship" — but BIOG 
 - **Different shapes**: Access associations query is *code-filtered list*; Avalonia is *per-person list*. The diff requires asking the same question on both sides (e.g. "associations of person X" in both); won't be a bare SQL row-set diff.
 - **Kinship distance limit**: Access's `CmdRun` may use a different default expansion depth than Avalonia's `expandNetwork=true`. Phase 3 will need to fix expansion depth on both sides.
 - **Phase 1.3b** (Access mdb writer) is still deferred and is the **unblocker for Phase 3**.
-  The repo's core invariant (per WORK_PLAN §1) is that both stacks be fed from the *same* Datadump — any drift between them would surface as false-positive Avalonia/Access disagreements. So Phase 3 differential comparisons MUST use:
+  The repo's strict-pipeline rule (WORK_PLAN §1) requires both stacks to be fed from the *same* Datadump — drift between them would surface as false-positive Avalonia/Access disagreements. Phase 3 differential comparisons MUST use:
   - generated `cbdb_data.mdb` (Phase 1.3b) + fixed `CBDB_BJ_User.mdb`
   - generated `cbdb.sqlite` (Phase 1.2, already working)
   — both from the SAME Datadump archive.
-  The existing `CBDB_BJ_20260430/CBDB_20260430_DATA.mdb` (20260430 snapshot) vs `cbdb.sqlite` (20260527 fresh) baseline established by Phase 1.5 is useful **for smoke-testing the harness scaffolding** (confirms the pyodbc → sqlite3 row-count path works end-to-end), but NOT for declaring any query result a true Access/Avalonia disagreement.
+  Pre-existing mdb files on the user's machine (e.g. `CBDB_BJ_20260430/CBDB_20260430_DATA.mdb`) are NOT acceptable substitutes, even for smoke testing — they would inject data-version drift and weaken the test contract. Nothing downstream of Phase 1.3b may run until 1.3b lands.
 - **Access inventory completeness**: the 43 entries in `access_queries.yaml` are a first-pass enumeration from `tests/test_vba_*.py` + form-specs. The CBDB Access UI has additional commands (`CmdGUESS` cross-form, `CmdGISPeople`, several import handlers under `Form_LookAtPeople` / `Form_LookAtBaseMaintenance`) that the test framework also covers but which this matrix doesn't yet list. Phase 3 fixture discovery will expand the inventory as paired queries are added — `coverage/` is a living document.

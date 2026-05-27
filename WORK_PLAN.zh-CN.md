@@ -5,6 +5,9 @@
 
 说明：`cbdb-user-mdb-tests` 和 `cbdb-desktop-app` 都已经存在一些此项工作的**雏形**（如 `cbdb-user-mdb-tests/data/cbdb_online_sqlite/`、`cbdb-user-mdb-tests/.external/cbdb-desktop-app/`），但最终决定**另起独立 repo** 做这件事，而不是延续既有雏形。
 
+**严格流水线规则（不接受替代）。** 构建流水线必须按顺序走完：
+`Datadump → cbdb_data.mdb` 与 `Datadump → cbdb.sqlite`，**两端都从同一份 Datadump 归档生成**。Phase 3 的差分框架**必须**消费这两份生成出的产物。**不接受**用本机已有的 mdb 文件（例如 `CBDB_BJ_20260430/CBDB_20260430_DATA.mdb`）作为替代——它们是从不同 Datadump 构建的，会把数据版本漂移悄悄注入到每一次 parity 对比里，而这正是本 repo 要防止的根本失败模式。Phase 1.3b（Datadump → mdb 写入器）位于关键路径上，**下游任何阶段都不允许绕过它走捷径**。
+
 ## 2. 输入（写入 `.env`，外部资源不复制进 repo）
 
 | Key | 含义 | 占位示例 |
