@@ -63,20 +63,38 @@ Initial skeleton. Implementation tracked phase-by-phase in `WORK_PLAN.md`
 (English) and `WORK_PLAN.zh-CN.md` (Chinese, authoritative for project
 decisions made in Chinese).
 
-## Quick start (once implemented)
+## Quick start
 
 ```powershell
 # 1. Configure local paths
 Copy-Item .env.sample .env
 # edit .env with the real paths on your machine
 
-# 2. Refresh external repos and rebuild the two databases
-python scripts/refresh_external_repos.py
-python scripts/build_all.py
+# 2. Install (uv-managed venv recommended; pyodbc + pypyodbc are
+#    Windows-only and live in the [access] extra)
+uv venv --python 3.12 .venv
+uv pip install --python .venv/Scripts/python.exe -e ".[dev,harness,access]"
 
-# 3. Run the differential harness
+# 3. Build both databases from the latest Datadump.
+#    `build-all` refreshes the four external repos, picks the newest
+#    cbdb_data_YYYYMMDD.tar.gz, then writes cbdb.sqlite AND cbdb_data.mdb
+#    to .env's BUILD_OUTPUT_DIR. SHA-anchored — re-runs are cached.
+cbdb-parity-build-all
+# or, individual sub-builders:
+#     cbdb-parity-build-sqlite
+#     cbdb-parity-build-mdb
+
+# 4. Run the differential harness. Per-query reports under reports/.
+#    The entry-pair smoke test requires both DBs to be present AND
+#    anchored to the same Datadump SHA per build_manifest.json
+#    (the strict-pipeline rule from WORK_PLAN §1); it skips cleanly
+#    otherwise.
 pytest tests/
 ```
+
+The pre-flight `cbdb-parity-refresh` is still callable on its own if you
+just want to `git pull --ff-only` the four external repos without
+building anything.
 
 ## External dependencies (configured via `.env`)
 
