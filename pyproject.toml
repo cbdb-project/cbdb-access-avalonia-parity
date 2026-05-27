@@ -49,6 +49,7 @@ Repository = "https://github.com/cbdb-project/cbdb-access-avalonia-parity"
 [project.scripts]
 cbdb-parity-refresh = "cbdb_parity.refresh:cli_main"
 cbdb-parity-build-sqlite = "cbdb_parity.sqlite_builder:cli_main"
+cbdb-parity-build-all = "cbdb_parity.build_all:cli_main"
 
 [build-system]
 # setuptools >= 77 is the first release with full PEP 639 support
