@@ -184,7 +184,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     Datadump 直链已可走通；MariaDB 中间路径（§4d，Phase 1.6）落地后会替代它作为默认。
   - ✅ 1.4 `cbdb_parity.build_all` + `cbdb-parity-build-all`（SHA 缓存、manifest 不变式、partial-write 保护、强制 refresh）
   - ✅ 1.5 `cbdb_parity.parity_check`（mdb 与 sqlite 之间的行数 diff）
-  - ⏳ **1.6 —— MariaDB 中间缓存**（`cbdb_parity.mariadb` + `cbdb-parity-import-mariadb` CLI；新增 .env key 见上；sqlite_builder + mdb_builder 增加 `source=mariadb` 默认）。驱动是 mysql2access.ipynb 实测的 Datadump→mdb 半边提速。形状见 §4d。**成为默认 import 步骤**；非 Docker 主机可通过 `source='datadump'` 回退到现有的 `cbdb_parity.mysqldump` 直链路径。两个 builder 仍然产出同样的最终产物。
+  - ✅ **1.6 —— MariaDB 中间缓存**（`cbdb_parity.mariadb` + `cbdb-parity-import-mariadb` CLI + `cbdb_parity.mariadb_source` 事件适配；sqlite_builder + mdb_builder 默认 `source=mariadb`；build_all 先跑 `ensure_imported`）。实测：Datadump → MariaDB 226 秒、MariaDB → SQLite 130 秒（比原直链路径快 3.1×）。Codex 在 1.6a 上跑了 v1..v9；1.6b/c 那一轮 gate 队列在 codex 用量限制重置之后。形状见 §4d。
 
 - **阶段 2 — 查询覆盖矩阵**
   - ✅ `coverage/avalonia_queries.yaml`（29 方法 / 9 服务）+ `coverage/access_queries.yaml`（43 查询 / 11 forms）+ `coverage/matrix.md`（16 直接配对 + 4 形状不匹配 + 4 仅 Access）
@@ -193,7 +193,8 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
   - ✅ 3a（路线调整 —— 不再走 .NET test host，因为用户机器只有 .NET runtime，没装 SDK）：`cbdb_parity.avalonia_query_sql`（从 `Sqlite*QueryService.cs` 提取 raw-string SQL）+ `cbdb_parity.avalonia_query`（用 Python sqlite3 复跑提取的 SQL，因为 Microsoft.Data.Sqlite 和 Python sqlite3 都包同一个 SQLite 引擎，所以行结果 bit-identical）。`EntryQueryRequest` 镜像 + `entry_query()` 已在真实 .build/cbdb.sqlite 上端到端验证。**Codex 一轮待跑。**
   - ✅ 3b：`cbdb_parity.diff_report`（DiffStats / DiffResult / `diff_rows` 支持复合 key + compare-fields 子集 + `write_report` 产出 WORK_PLAN §6/§7 文件树，hypothesis.md 跨次运行保留）+ `cbdb_parity.access_query`（cbdb_replay 桥接：`$ACCESS_TESTS_REPO/tests` 注入 sys.path、EntryQueryRequest → EntryQueryInputs 映射、行投影到 9 列公共子集）。**Codex 一轮待跑。**
   - ✅ 3c entry pair 烟雾测试：`tests/test_phase3c_entry_pair.py` —— 同一 request 喂两侧，按 `(person_id, sequence)` + 公共字段 diff，写报告，断言 `diff.stats.matches`。prereq（mdb、manifest 同 SHA、pyodbc、cbdb_replay）不满足时 pytest.skip。**Phase 1.3b 后台 build 完成 + 跑 `cbdb-parity-build-all` 锚定两端到同一 SHA 后，本测试会真正运行。**
-  - ⏭ 3d（Office pair）和 3e（Status pair）按 3c 的同一模式扩展 —— `avalonia_query.py` / `access_query.py` 各加 `office_query`/`office_query_access` 与 `status_query`/`status_query_access`，对应烟雾测试镜像复制。
+  - ✅ 3d（Office pair）：`cbdb_parity.avalonia_office_query` + `cbdb_parity.access_office_query` + `tests/test_phase3d_office_pair.py`。字段命名对齐 `Cbdb.App.Core.OfficeQueryRecord` snake-case 属性名；C# reader 的 57/64 列序错位通过 `_sql_row_to_record_row` 镜像。Access bridge 拒绝 cbdb_replay/lookatoffice 无法忠实复现的分支（person_keyword / dynasty_ids / 有 place ids 时的 subordinate flags / 空 office_codes），避免误报。Codex v1..v7 干净通过。
+  - ✅ 3e（Status pair）：`cbdb_parity.avalonia_status_query` + `cbdb_parity.access_status_query` + `tests/test_phase3e_status_pair.py`。形状同 3d，36 字段，C# reader 列序与 SELECT 一致没有错位。Codex 队列等待用量限制重置。
 
 - **阶段 4（持续）** —— 按查询逐个扩覆盖，每个新查询同时产出 diff 报告与（如不一致）根因记录。目标：Tier 1 形状不匹配的几对（BIOG basic / associations / kinship / GroupData），然后 Access-only 类别（Texts / Networks / AssociationPairs / Place）等 Avalonia 端补齐对应功能。
 
