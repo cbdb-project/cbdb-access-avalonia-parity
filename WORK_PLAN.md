@@ -45,10 +45,41 @@ downstream may shortcut around it.
 
 ## 4. Build pipeline (Datadump → two databases)
 
-### 4a. Datadump → Access "data" mdb
-- Pick newest archive in `DATADUMP_DIR`, extract to scratch.
-- Port the MySQL→Access flow from `$ACCESS_MYSQL_TRANSFER_REPO/mysql2access.ipynb` + `$MYSQL2ACCESS_DIR/mysql2access.ipynb` into a reproducible script `scripts/build_access_data.py` (no notebook). Reuse the table list / field list / primary-key spreadsheets that live in `$MYSQL2ACCESS_DIR`.
-- Output `BUILD_OUTPUT_DIR\cbdb_data.mdb`. Pair it with the fixed `CBDB_BJ_User.mdb` to form a working Access stack.
+Both sub-pipelines (4a, 4b) MUST consume the SAME `cbdb_data_YYYYMMDD.tar.gz` archive; the `build_all` orchestrator (4c) ties them together. See §1 strict-pipeline rule: pre-existing mdb files are NOT acceptable substitutes for the 4a output.
+
+### 4a. Datadump → Access `cbdb_data.mdb`
+
+Split into two sub-phases:
+
+**Phase 1.3a — `cbdb_parity.access_schema` (✅ done)**
+- Loads `$ACCESS_MYSQL_TRANSFER_REPO/TablesFields.xlsx` (85 tables / 669 columns) into typed dataclasses: `AccessSchema`, `AccessTable`, `AccessColumn(name, data_format, nullable, is_primary_key, foreign_key_*, dump_*)`.
+- Used by 1.3b for type overrides and FK references; useful on its own for schema validation.
+
+**Phase 1.3b — `cbdb_parity.mdb_builder` (next)**
+
+Python end-to-end, no Docker MySQL, no manual artifacts. Concrete plan:
+
+1. **Bootstrap empty mdb** via `pypyodbc.win_create_mdb(target)` — empirically verified to produce a working 172 KB empty mdb in one call on Windows + Microsoft Access Driver. No ADOX, no `win32com`, no template file. `pypyodbc` is added as a new `[access]` extra dependency; we only use that one function — all other mdb operations (connect / execute / cursor.tables) continue to use `pyodbc` (matching the proven shape of `$ACCESS_MYSQL_TRANSFER_REPO/mysql2access.ipynb`).
+2. **Consume the dump stream** via the existing `cbdb_parity.mysqldump.parse_dump()` (Phase 1.1) — no MySQL server needed, no Docker. Reuse the streaming parser we already have, same as `cbdb_parity.sqlite_builder` does.
+3. **MySQL → Access type translator** in a new `cbdb_parity.access_types.mysql_type_to_access()` mirroring the shape of `mysql_type_to_sqlite`. Starting map (from `mysql2access.ipynb` + the README at `$ACCESS_MYSQL_TRANSFER_REPO/README.md`):
+   - `int / smallint / mediumint / bigint(N)` → `INTEGER` (Long)
+   - `double / float` → `DOUBLE`
+   - `decimal(p,s)` → `DOUBLE` (Access lacks NUMERIC — verify with CBDB rows)
+   - `varchar(N)` → `VARCHAR(255)` capped; **mind the utf8mb4 → utf8 caveat: drop to `VARCHAR(191)`** if INSERT errors come back complaining about row size, per README §1
+   - `char(N)` → `VARCHAR(N)` (Access has no fixed-length CHAR)
+   - `text / mediumtext / longtext / tinytext` → `LONGTEXT` (Memo)
+   - `date / datetime / timestamp / time` → `DATETIME`
+   - `bit / tinyint(1)` → `SMALLINT` (per README §3 — boolean flips bug avoided)
+   - `varbinary / binary` → `LONGBINARY`
+4. **CREATE TABLE / INSERT** via `pyodbc`. Skip `CBDB__*` internal tables by default (same default as `sqlite_builder`); skip the `SKIP_TABLES` ops/audit list from `mysql2access.ipynb` cell 3 (oauth_*, migrations, users, operations, password_resets, …). Batch INSERTs via `cursor.executemany(...)` — the notebook uses row-by-row `execute`, which is slow for 5M+ rows; we use the same `_BATCH_ROWS=1000` constant `sqlite_builder` does.
+5. **Special-value normalisation** from notebook cell 2: `b'\x00'`→0, `b'\x01'`→1, `'0000-00-00 00:00:00'`→None.
+6. **Output `BUILD_OUTPUT_DIR\cbdb_data.mdb`**. Pair with fixed `CBDB_USER_MDB` to form the working Access stack.
+
+CLI: `scripts/build_mdb.py` + `[project.scripts] cbdb-parity-build-mdb`. Orchestrator integration: `build_all.py` gains a `_build_mdb_if_needed` call alongside the existing `_build_sqlite_if_needed`, sharing the same SHA-cache invariants and per-product manifest slot.
+
+**Why not Docker MySQL.** Considered as fallback but ruled out: the empty-mdb bootstrap (the only step that initially looked hard) is solved by `pypyodbc.win_create_mdb`; the dump-parsing step is solved by the already-built `cbdb_parity.mysqldump`. Going through Docker would re-introduce MySQL as a dependency and produce a longer pipeline (tar.gz → docker mysql:8 → notebook code → mdb) than the direct one (tar.gz → parse → mdb). The Docker route stays available as an escape hatch if some CBDB-specific dump shape defeats the type translator, mirroring 4b's policy.
+
+**Codex review gate (same as 4b).** During 1.3b implementation, three consecutive codex review rounds flagging serious issues with the Python port flip the offending step to the Docker fallback. User-triggered, not automatic.
 
 ### 4b. Datadump → Avalonia SQLite
 
@@ -62,34 +93,60 @@ This avoids spinning up MySQL on every run and keeps the pipeline self-contained
 
 **Decision point.** Phase 1 must pick one of these *and stick with it* before Phase 2 — running both forever is not the goal. Verify row counts of key tables (BIOG_MAIN, ADDR_CODES, OFFICE_CODES, …) match the Access build to prove "same data, two formats" before any query diffing.
 
-### 4c. One-shot orchestrator
-`scripts/build_all.py` runs 4a + 4b from a single Datadump archive and records the dump filename + SHA in `build_manifest.json` so every report ties back to a specific data version.
+### 4c. One-shot orchestrator (✅ done — `cbdb_parity.build_all`)
+`scripts/build_all.py` + `cbdb-parity-build-all` CLI. Runs 4a + 4b from a single Datadump archive and records the dump filename + SHA in `build_manifest.json` (at workspace root, discovered via `find_dotenv`) so every report ties back to a specific data version. SHA-based caching skips rebuilds when the manifest already records the current SHA AND the recorded product path matches the current target AND the file exists. `--rebuild` forces. Refresh of the four external repos is mandatory and cannot be skipped.
+
+Currently wires only 4b (sqlite). Once 4a Phase 1.3b lands, the orchestrator adds the parallel `_build_mdb_if_needed` call alongside `_build_sqlite_if_needed`; manifest invariants (SHA-anchored sibling preservation, partial-write protection, stale-sibling drop on SHA change) are already in place.
 
 ## 5. Query coverage inventory
 1. Crawl `cbdb-desktop-app/Cbdb.App.Avalonia` + `Cbdb.App.Core` to enumerate every implemented query/view (people search, office, kinship, association, place, etc.). Output `coverage/avalonia_queries.yaml`: `{id, name, params, status: implemented|missing}`.
 2. Crawl `cbdb-user-mdb-tests` (especially `test_vba_*.py`, `cbdb_driver/`, `cbdb_replay/`) to enumerate every Access query the existing framework can drive. Output `coverage/access_queries.yaml`.
 3. Produce `coverage/matrix.md` joining the two: Avalonia feature ↔ matching Access query ↔ status (paired / Avalonia-only / Access-only / missing-on-both).
 
-## 6. Differential harness
+## 6. Differential harness (Phase 3)
 - Pytest-based, modeled on the VBA differential pattern in `cbdb-user-mdb-tests/tests/test_vba_differential.py` and `cbdb_driver`/`cbdb_replay`.
-- For each paired query in `matrix.md`:
-  1. **Access side** — drive the real Access UI via the existing `cbdb_driver` (pywinauto) **or** issue the equivalent SQL against the generated `cbdb_data.mdb` via pyodbc, depending on whether the query is UI-only or SQL-expressible.
+- For each paired query in `coverage/matrix.md`:
+  1. **Access side** — drive the real Access UI via the existing `cbdb_driver` (pywinauto) **or** issue the equivalent SQL against the **generated** `cbdb_data.mdb` (Phase 1.3b output) via pyodbc, depending on whether the query is UI-only or SQL-expressible. Per §1 strict-pipeline rule, pre-existing local mdbs are NOT acceptable inputs.
   2. **Avalonia side** — call the same query path. Two options to evaluate in a spike: (a) UI-drive Avalonia via Appium/FlaUI, (b) instantiate `Cbdb.App.Core` query services directly from a small .NET test host that returns JSON. (b) is faster and more stable; prefer it unless we need to validate UI binding.
   3. Normalize both result sets to a canonical record shape, sort, diff.
   4. Emit a per-query report under `reports/<query_id>/{access.json, avalonia.json, diff.json, summary.md}`.
 - Shared parametrization fixtures (person IDs, office IDs, kinship roots) live in `tests/fixtures/` so both sides hit the same inputs.
+
+**Starter set (first 3 paired queries — revised from WORK_PLAN's original BIOG/office/kinship after Phase 2 found shape mismatches).** Per `coverage/matrix.md` Tier 1, the three strict-same-shape pairs that can be driven without further shape negotiation:
+1. **Entry query** — Avalonia `IEntryQueryService.QueryAsync` vs Access `cbdb_replay/lookatentry` + Form_LookAtEntry CmdQuery
+2. **Office query** — Avalonia `IOfficeQueryService.QueryAsync` vs Access `cbdb_replay/lookatoffice` + Form_LookAtOffice CmdQuery
+3. **Status query** — Avalonia `IStatusQueryService.QueryAsync` vs Access `cbdb_replay/lookatstatus` + Form_LookAtStatus CmdQuery
+
+BIOG basic, kinship recursive, and associations have shape mismatches that need a Phase 4 narrowing step before they're paired.
 
 ## 7. Reporting & root-cause loop
 - Top-level `reports/SUMMARY.md` aggregates: total queries, paired, passing, failing, Avalonia-missing.
 - For each failing query, capture: input, two outputs, diff, and a `hypothesis.md` slot for the human-or-LLM-written root cause (schema mismatch, missing join, code-table drift, etc.).
 - `reports/known_issues.md` tracks confirmed Avalonia gaps so they don't re-trigger noise on every run.
 
-## 8. Phasing
-- **Phase 0 (1–2 days)** — repo init, `.env`/`.env.sample`, `.gitignore`, push to `cbdb-project` org, cross-repo `git pull` helper.
-- **Phase 1 (3–5 days)** — Datadump→Access script (port from `mysql2access`); Datadump→SQLite script (port from `cbdb-online-main-server` artisan); row-count parity check.
-- **Phase 2 (2–3 days)** — coverage inventory + matrix.
-- **Phase 3 (1–2 weeks)** — differential harness skeleton + first 3 paired queries end-to-end (recommend: BIOG basic, office query, kinship), proving both drive paths.
-- **Phase 4 (ongoing)** — expand coverage query-by-query; each new query lands with its diff report and (if mismatched) a root-cause note.
+## 8. Phasing & status
+
+- **Phase 0 — repo init**
+  - ✅ 0.1 `git init` + LICENSE (CC BY-NC-SA 4.0 canonical text) + README + AGENTS + `.gitignore` + `.env.sample`
+  - ✅ 0.2 `cbdb_parity.config` (`.env` loader, strict validation, find_dotenv-based discovery)
+  - ✅ 0.3 `cbdb_parity.refresh` + `cbdb-parity-refresh` CLI (refresh gate, mandatory)
+  - ✅ 0.4 `gh repo create cbdb-project/cbdb-access-avalonia-parity --public` + initial push
+
+- **Phase 1 — Datadump → two databases**
+  - ✅ 1.0 `cbdb_parity.datadump` (newest-by-date-tag, streaming `r|gz`, SHA)
+  - ✅ 1.1 `cbdb_parity.mysqldump` (forward-only mysqldump parser, fail-loud)
+  - ✅ 1.2 `cbdb_parity.sqlite_builder` + `cbdb-parity-build-sqlite` (Python port of `ExportMysqlToSqlite`; real-world: 94 tables / 5.74M rows / 559 MB in 405 s)
+  - ✅ 1.3a `cbdb_parity.access_schema` (TablesFields.xlsx loader)
+  - 🚧 **1.3b `cbdb_parity.access_types` + `cbdb_parity.mdb_builder` + `cbdb-parity-build-mdb` CLI (NEXT)** — Python end-to-end, `pypyodbc.win_create_mdb` bootstrap, reuses `cbdb_parity.mysqldump` parser, `executemany` INSERT, CBDB__/oauth/audit SKIP_TABLES, type translator per §4a above
+  - ✅ 1.4 `cbdb_parity.build_all` + `cbdb-parity-build-all` (SHA cache, manifest invariants, partial-write protection, mandatory refresh)
+  - ✅ 1.5 `cbdb_parity.parity_check` (row-count diff between mdb and sqlite)
+
+- **Phase 2 — Query coverage matrix**
+  - ✅ `coverage/avalonia_queries.yaml` (29 methods / 9 services) + `coverage/access_queries.yaml` (43 queries / 11 forms) + `coverage/matrix.md` (16 directly-paired + 4 shape-mismatched + 4 access-only)
+
+- **Phase 3 (1–2 weeks)** — differential harness skeleton + first 3 paired queries (Entry / Office / Status query — revised starter set, see §6). Blocked by 1.3b (per §1 strict-pipeline rule — pre-existing mdb is not an acceptable substitute).
+
+- **Phase 4 (ongoing)** — expand coverage query-by-query; each new query lands with its diff report and (if mismatched) a root-cause note. Targets: shape-mismatched Tier 1 pairs (BIOG basic / associations / kinship / GroupData) then Access-only categories (Texts / Networks / AssociationPairs / Place) once Avalonia-side gains those features.
 
 ## 9. Open questions
 
@@ -100,5 +157,6 @@ This avoids spinning up MySQL on every run and keeps the pipeline self-contained
 
 **Decisions made during planning:**
 - ✅ **Caching**: cache both the generated Access `cbdb_data.mdb` and the Avalonia `cbdb.sqlite` by Datadump filename + SHA. Re-use the cached artifact unless the Datadump SHA changes or the user passes `--rebuild`.
-- ✅ **Python → Docker switch criterion**: the threshold is **not** measured in working days. Instead: during Phase 1 4b implementation, the user will invoke Codex review on the Python-port code. If **three consecutive Codex review rounds still flag serious issues** with the Python port, switch the offending command (or the entire 4b pipeline) to the Docker MySQL fallback. Codex review is **user-triggered**, not automatic.
+- ✅ **Python → Docker switch criterion**: the threshold is **not** measured in working days. Instead, during 4a (1.3b) AND 4b implementation, the user invokes Codex review on the Python-port code. If **three consecutive Codex review rounds still flag serious issues** with the Python port for that step, switch the offending command (or the entire pipeline for that side) to a Docker MySQL fallback. Codex review is **user-triggered**, not automatic.
 - ✅ **LICENSE**: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0).
+- ✅ **Empty mdb bootstrap (1.3b)**: `pypyodbc.win_create_mdb()` — empirically verified to produce a 172 KB empty mdb in one call. NOT `pyodbc` (rejects non-existent file), NOT ADOX/`win32com` (heavier), NOT a committed template binary (not reproducible). `pypyodbc` becomes a new `[access]` extra dependency, used for that single function only; all other mdb operations stay on `pyodbc`.
