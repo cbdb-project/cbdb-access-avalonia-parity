@@ -1,4 +1,4 @@
-"""Load and validate the eight `.env` keys defined in `.env.sample`.
+"""Load and validate the `.env` keys defined in `.env.sample`.
 
 Every harness entrypoint goes through `load_config()` so a missing or
 mistyped env key fails loud and early instead of producing silent wrong
@@ -12,8 +12,9 @@ from pathlib import Path
 
 from dotenv import dotenv_values, find_dotenv
 
-# Single source of truth for the env-key set. Matches `.env.sample` exactly.
-# Update both files together if a key is added or renamed.
+# Single source of truth for the path-typed env-key set. Matches the
+# corresponding entries in `.env.sample` exactly. MariaDB connection keys
+# (string / int / bool) are NOT in this tuple — see MARIADB_REQUIRED_KEYS.
 REQUIRED_KEYS: tuple[str, ...] = (
     "DATADUMP_DIR",
     "CBDB_USER_MDB",
@@ -23,6 +24,26 @@ REQUIRED_KEYS: tuple[str, ...] = (
     "ACCESS_MYSQL_TRANSFER_REPO",
     "MYSQL2ACCESS_DIR",
     "BUILD_OUTPUT_DIR",
+)
+
+# MariaDB intermediate cache (Phase 1.6 / WORK_PLAN §4d). Required when
+# `Config.has_mariadb` is consulted; absence of these keys is NOT an
+# error at load_config() time because the Datadump-direct fallback path
+# (source='datadump') still works without them. Callers that actually
+# want to use the MariaDB cache check `cfg.mariadb` is not None.
+MARIADB_REQUIRED_KEYS: tuple[str, ...] = (
+    "MARIADB_HOST",
+    "MARIADB_PORT",
+    "MARIADB_USER",
+    "MARIADB_PASSWORD",
+    "MARIADB_DATABASE",
+)
+
+# Optional MariaDB knobs with safe defaults if absent from .env.
+MARIADB_OPTIONAL_KEYS: tuple[tuple[str, str], ...] = (
+    ("MARIADB_CONTAINER_NAME", "cbdb-parity-mariadb"),
+    ("MARIADB_FORCE_REIMPORT", "0"),
+    ("MARIADB_AUTO_LAUNCH", "0"),
 )
 
 # Keys whose values must be existing directories on disk at config-load time.
@@ -61,6 +82,26 @@ class ConfigError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
+class MariaDbConfig:
+    """Resolved MariaDB connection / behaviour config (Phase 1.6 §4d).
+
+    Present on `Config.mariadb` only when all 5 required MARIADB_* keys
+    are set in `.env`. Callers that want the MariaDB cache check for
+    `cfg.mariadb is not None` and surface a clean error to the user if
+    not configured rather than connecting with half-resolved defaults.
+    """
+
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+    container_name: str
+    force_reimport: bool
+    auto_launch: bool
+
+
+@dataclass(frozen=True, slots=True)
 class Config:
     """Resolved, validated environment for a parity run.
 
@@ -76,6 +117,7 @@ class Config:
     access_mysql_transfer_repo: Path
     mysql2access_dir: Path
     build_output_dir: Path
+    mariadb: MariaDbConfig | None = None
 
     def refresh_targets(self) -> dict[str, Path]:
         """Return the four git-repo paths that must be `git pull`'d per run.
@@ -177,6 +219,12 @@ def load_config(env_path: Path | None = None) -> Config:
             ".env path validation failed:\n  - " + "\n  - ".join(errors)
         )
 
+    # MariaDB validation runs BEFORE mkdir() so a typo in any MARIADB_*
+    # key fails the load WITHOUT mutating the filesystem — preserves
+    # the documented "failing load_config() leaves the FS untouched"
+    # invariant (codex P2).
+    mariadb_cfg = _load_mariadb_config(file_values)
+
     for key in WRITABLE_KEYS:
         try:
             resolved[key].mkdir(parents=True, exist_ok=True)
@@ -197,4 +245,79 @@ def load_config(env_path: Path | None = None) -> Config:
         access_mysql_transfer_repo=resolved["ACCESS_MYSQL_TRANSFER_REPO"],
         mysql2access_dir=resolved["MYSQL2ACCESS_DIR"],
         build_output_dir=resolved["BUILD_OUTPUT_DIR"],
+        mariadb=mariadb_cfg,
+    )
+
+
+def _parse_bool(raw: str, *, key: str) -> bool:
+    """Parse a 0/1/true/false/yes/no value from `.env`. Reject anything else.
+
+    The .env semantics are explicit on purpose — silent coercion (e.g.
+    treating an empty string as False) would mask typos that change
+    pipeline behaviour. The exact accepted vocabulary mirrors what
+    `dotenv` itself documents.
+    """
+    val = (raw or "").strip().lower()
+    if val in {"1", "true", "yes", "on"}:
+        return True
+    if val in {"0", "false", "no", "off", ""}:
+        return False
+    raise ConfigError(
+        f"{key}={raw!r} is not a valid boolean (use 0/1, true/false, yes/no)"
+    )
+
+
+def _load_mariadb_config(file_values: dict[str, str | None]) -> MariaDbConfig | None:
+    """Resolve `MARIADB_*` keys to a MariaDbConfig, or None if absent.
+
+    Returning None when the keys are missing keeps the Datadump-direct
+    fallback path workable on hosts without Docker; callers that want
+    the MariaDB cache layer check for None and raise a clear error
+    pointing at `.env.sample`.
+
+    Validation is all-or-nothing: any of the five required keys missing
+    OR present-but-blank → `mariadb=None` on the returned Config (NOT
+    an error). A partially-filled MariaDB section (e.g. host set, port
+    blank) raises ConfigError to catch typos that would otherwise yield
+    a confusing connection failure deeper in the pipeline.
+    """
+    raw: dict[str, str] = {
+        k: (file_values.get(k) or "").strip() for k in MARIADB_REQUIRED_KEYS
+    }
+    filled = [k for k, v in raw.items() if v]
+    if not filled:
+        return None
+    if len(filled) < len(MARIADB_REQUIRED_KEYS):
+        missing = [k for k in MARIADB_REQUIRED_KEYS if not raw[k]]
+        raise ConfigError(
+            ".env partially specifies the MariaDB cache (Phase 1.6 §4d): "
+            f"set keys {filled!r}, missing keys {missing!r}. "
+            "Either fill in all 5 required MARIADB_* keys (see .env.sample) "
+            "or remove the partial ones entirely to disable the cache."
+        )
+
+    try:
+        port = int(raw["MARIADB_PORT"])
+    except ValueError as exc:
+        raise ConfigError(
+            f"MARIADB_PORT={raw['MARIADB_PORT']!r} is not an integer"
+        ) from exc
+
+    optional_resolved: dict[str, str] = {}
+    for key, default in MARIADB_OPTIONAL_KEYS:
+        optional_resolved[key] = (file_values.get(key) or "").strip() or default
+
+    return MariaDbConfig(
+        host=raw["MARIADB_HOST"],
+        port=port,
+        user=raw["MARIADB_USER"],
+        password=raw["MARIADB_PASSWORD"],
+        database=raw["MARIADB_DATABASE"],
+        container_name=optional_resolved["MARIADB_CONTAINER_NAME"],
+        force_reimport=_parse_bool(
+            optional_resolved["MARIADB_FORCE_REIMPORT"], key="MARIADB_FORCE_REIMPORT"
+        ),
+        auto_launch=_parse_bool(
+            optional_resolved["MARIADB_AUTO_LAUNCH"], key="MARIADB_AUTO_LAUNCH"
+        ),
     )

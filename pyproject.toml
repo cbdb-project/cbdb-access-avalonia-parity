@@ -23,6 +23,14 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0",
     "openpyxl>=3.1",
+    # `pymysql` is required by Phase 1.6's MariaDB intermediate cache
+    # (cbdb_parity.mariadb). Default install includes it because the
+    # MariaDB cache is the default import source for both builders; the
+    # `source='datadump'` Python-parser fallback exists for hosts that
+    # cannot run Docker, but the package metadata advertises the full
+    # feature set so a clean install doesn't ModuleNotFoundError the
+    # first time a user runs `cbdb-parity-build-all`.
+    "pymysql>=1.1",
 ]
 
 [project.optional-dependencies]
@@ -56,6 +64,7 @@ cbdb-parity-refresh = "cbdb_parity.refresh:cli_main"
 cbdb-parity-build-sqlite = "cbdb_parity.sqlite_builder:cli_main"
 cbdb-parity-build-mdb = "cbdb_parity.mdb_builder:cli_main"
 cbdb-parity-build-all = "cbdb_parity.build_all:cli_main"
+cbdb-parity-import-mariadb = "cbdb_parity.mariadb:cli_main"
 
 [build-system]
 # setuptools >= 77 is the first release with full PEP 639 support

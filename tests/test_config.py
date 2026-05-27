@@ -127,10 +127,16 @@ def test_refresh_targets_lists_exactly_the_four_git_repos(fake_env: Path) -> Non
 
 
 def test_env_sample_keys_match_required_keys() -> None:
-    """`.env.sample` must list exactly the keys cbdb_parity.config requires.
+    """`.env.sample` must list exactly the keys cbdb_parity.config defines.
 
-    This is the canary that catches a `.env.sample` ↔ config.py drift.
+    Canary for drift between `.env.sample` and config.py. Includes both
+    the path-typed `REQUIRED_KEYS` and the Phase 1.6 MariaDB keys
+    (`MARIADB_REQUIRED_KEYS` + `MARIADB_OPTIONAL_KEYS` first element of
+    each tuple). MariaDB keys are optional at load_config() time but
+    documented in .env.sample.
     """
+    from cbdb_parity.config import MARIADB_OPTIONAL_KEYS, MARIADB_REQUIRED_KEYS
+
     sample = Path(__file__).resolve().parent.parent / ".env.sample"
     declared = set()
     for raw in sample.read_text(encoding="utf-8").splitlines():
@@ -140,11 +146,115 @@ def test_env_sample_keys_match_required_keys() -> None:
         if "=" in line:
             declared.add(line.split("=", 1)[0])
 
-    assert declared == set(REQUIRED_KEYS), (
-        f".env.sample keys diverged from REQUIRED_KEYS.\n"
-        f"  In sample but not required: {declared - set(REQUIRED_KEYS)}\n"
-        f"  Required but not in sample: {set(REQUIRED_KEYS) - declared}"
+    expected = (
+        set(REQUIRED_KEYS)
+        | set(MARIADB_REQUIRED_KEYS)
+        | {k for k, _ in MARIADB_OPTIONAL_KEYS}
     )
+    assert declared == expected, (
+        f".env.sample keys diverged from config.py.\n"
+        f"  In sample but not declared: {declared - expected}\n"
+        f"  Declared but not in sample: {expected - declared}"
+    )
+
+
+def test_mariadb_absent_keys_yields_mariadb_none(fake_env: Path) -> None:
+    """No MARIADB_* keys in .env → cfg.mariadb is None (cache disabled).
+
+    The fake_env fixture doesn't add MariaDB keys, so this is the baseline
+    state we ship to non-Docker hosts. Datadump-direct path still works.
+    """
+    cfg = load_config(fake_env)
+    assert cfg.mariadb is None
+
+
+def _append_mariadb_block(env_path: Path, lines: list[str]) -> None:
+    text = env_path.read_text(encoding="utf-8")
+    env_path.write_text(text + "\n" + "\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_mariadb_full_keys_yields_mariadb_config(fake_env: Path) -> None:
+    """All 5 required MariaDB keys present → cfg.mariadb is populated.
+
+    Optional knobs (CONTAINER_NAME, FORCE_REIMPORT, AUTO_LAUNCH) fall back
+    to the defaults declared in MARIADB_OPTIONAL_KEYS when absent.
+    """
+    _append_mariadb_block(fake_env, [
+        "MARIADB_HOST=localhost",
+        "MARIADB_PORT=3306",
+        "MARIADB_USER=root",
+        "MARIADB_PASSWORD=secret",
+        "MARIADB_DATABASE=cbdb_data",
+    ])
+    cfg = load_config(fake_env)
+    assert cfg.mariadb is not None
+    assert cfg.mariadb.host == "localhost"
+    assert cfg.mariadb.port == 3306
+    assert cfg.mariadb.user == "root"
+    assert cfg.mariadb.password == "secret"
+    assert cfg.mariadb.database == "cbdb_data"
+    # Defaults from MARIADB_OPTIONAL_KEYS.
+    assert cfg.mariadb.container_name == "cbdb-parity-mariadb"
+    assert cfg.mariadb.force_reimport is False
+    assert cfg.mariadb.auto_launch is False
+
+
+def test_mariadb_partial_keys_raises(fake_env: Path) -> None:
+    """Set ONE MariaDB key but not the others → ConfigError naming the missing.
+
+    Half-configured MariaDB sections are almost always typos; failing
+    fast with the missing-key list is friendlier than a downstream
+    connection error.
+    """
+    _append_mariadb_block(fake_env, ["MARIADB_HOST=localhost"])
+    with pytest.raises(ConfigError, match="partially specifies the MariaDB"):
+        load_config(fake_env)
+
+
+def test_mariadb_optional_overrides_default(fake_env: Path) -> None:
+    """Setting an optional MariaDB knob overrides its default."""
+    _append_mariadb_block(fake_env, [
+        "MARIADB_HOST=localhost",
+        "MARIADB_PORT=3306",
+        "MARIADB_USER=root",
+        "MARIADB_PASSWORD=secret",
+        "MARIADB_DATABASE=cbdb_data",
+        "MARIADB_CONTAINER_NAME=my-mariadb",
+        "MARIADB_FORCE_REIMPORT=1",
+        "MARIADB_AUTO_LAUNCH=true",
+    ])
+    cfg = load_config(fake_env)
+    assert cfg.mariadb is not None
+    assert cfg.mariadb.container_name == "my-mariadb"
+    assert cfg.mariadb.force_reimport is True
+    assert cfg.mariadb.auto_launch is True
+
+
+def test_mariadb_bad_port(fake_env: Path) -> None:
+    """A non-integer MARIADB_PORT must raise ConfigError naming the key."""
+    _append_mariadb_block(fake_env, [
+        "MARIADB_HOST=localhost",
+        "MARIADB_PORT=not-a-port",
+        "MARIADB_USER=root",
+        "MARIADB_PASSWORD=secret",
+        "MARIADB_DATABASE=cbdb_data",
+    ])
+    with pytest.raises(ConfigError, match="MARIADB_PORT"):
+        load_config(fake_env)
+
+
+def test_mariadb_bad_bool(fake_env: Path) -> None:
+    """A non-boolean MARIADB_FORCE_REIMPORT must raise ConfigError."""
+    _append_mariadb_block(fake_env, [
+        "MARIADB_HOST=localhost",
+        "MARIADB_PORT=3306",
+        "MARIADB_USER=root",
+        "MARIADB_PASSWORD=secret",
+        "MARIADB_DATABASE=cbdb_data",
+        "MARIADB_FORCE_REIMPORT=maybe",
+    ])
+    with pytest.raises(ConfigError, match="MARIADB_FORCE_REIMPORT"):
+        load_config(fake_env)
 
 
 def test_config_is_frozen(fake_env: Path) -> None:
