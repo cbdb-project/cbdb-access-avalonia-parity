@@ -370,12 +370,17 @@ def _drain(
 ) -> None:
     """Consume the parser event stream into `cursor`.
 
-    Commits per-table rather than once at the very end. Jet's per-
-    transaction work-buffer accumulates ALL the prior-state pages until
-    commit; with millions of rows in a single transaction the buffer
-    quickly hits the 2 GB .mdb hard limit even when the final file
-    would be well under it. Per-table commits let Jet recycle that
-    buffer between tables.
+    Commits per BATCH (every `_BATCH_ROWS`-row executemany), not just
+    per table. Empirical: even with per-table commits, a single big
+    table (BIOG_SOURCE_DATA at ~1.2M rows, BIOG_MAIN at ~658k, ...)
+    still overflows Jet's 2 GB transaction work-buffer mid-table on
+    the real May-27 Datadump — the build aborts with `HY001` around
+    250-270 MB written. Committing each 1000-row batch keeps the
+    work-buffer bounded at one batch's worth of pages, at the cost of
+    one extra fsync per batch (which Jet does anyway since we have
+    no `synchronous=OFF`-style escape hatch). cbdb.mdb is ~792 MB
+    final; we routinely cleared 2 GB of accumulated work-buffer on
+    that workload before this fix.
     """
     table_columns: dict[str, tuple[Column, ...]] = {}
     skipped: set[str] = set()
@@ -390,15 +395,18 @@ def _drain(
         cursor.executemany(batch_insert_sql, batch)
         stats.rows_inserted += len(batch)
         batch = []
+        # Commit immediately so Jet releases the transaction
+        # work-buffer for this batch's pages before the next batch
+        # starts. See module docstring for why this is per-batch
+        # rather than per-table.
+        conn.commit()
 
     for ev in events:
         if isinstance(ev, TableSchema):
-            # End of prior table — flush the last batch AND commit so
-            # Jet can release the transaction work-buffer before we
-            # start writing the next table.
+            # End of prior table — flush the last batch (which also
+            # commits inside flush(), per the per-batch commit policy).
+            # No separate per-table commit needed.
             flush()
-            if batch_table is not None:
-                conn.commit()
             # Skip both CBDB__* (matching sqlite_builder default) and the
             # Laravel ops tables hard-listed in the notebook. The
             # `with_internal` flag only affects the CBDB__ check —
