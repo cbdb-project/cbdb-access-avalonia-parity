@@ -53,10 +53,21 @@ _DATA_FORMAT_TO_ODBC: dict[str, str] = {
     "Binary": "LONGBINARY",
 }
 
-# Tables that the Laravel ops stack uses but CBDB's Access stack doesn't
-# need — copied verbatim from `mysql2access.ipynb` cell 3 plus the
-# `CBDB__*` prefix that the sqlite_builder already filters.
+# Tables NOT to write into cbdb_data.mdb. Two groups:
+#
+# (a) Laravel ops stack — historically skipped by `mysql2access.ipynb`
+# cell 3 (the notebook ETL the user maintains in `$MYSQL2ACCESS_DIR`).
+#
+# (b) Tables present in the MySQL Datadump but absent from the canonical
+# `CopyTables` allowlist inside `$MYSQL2ACCESS_DIR/CBDB_*_DATA.mdb`
+# (which `copy_tables_from_cbdb.ps1` reads as its source of truth for
+# which tables to land in the production Access mdb). `ADDRESSES` is
+# the most consequential one: it's a Laravel-derived denormalised
+# address join (~64k rows) whose memo-typed text columns balloon Jet's
+# transaction temp space well past the 2 GB hard limit during bulk
+# load. The standard CBDB Access mdb does not contain it.
 _NOTEBOOK_SKIP_TABLES: frozenset[str] = frozenset({
+    # (a) Laravel ops stack
     "users",
     "operations",
     "password_resets",
@@ -71,6 +82,8 @@ _NOTEBOOK_SKIP_TABLES: frozenset[str] = frozenset({
     "audit_log",
     "ai_fill_logs",
     "nl_query_logs",
+    # (b) Datadump rows the production CopyTables allowlist excludes
+    "addresses",
 })
 
 _INTERNAL_PREFIX = "CBDB__"
@@ -316,7 +329,15 @@ def _drain(
     with_internal: bool,
     access_schema: AccessSchema | None = None,
 ) -> None:
-    """Consume the parser event stream into `cursor`."""
+    """Consume the parser event stream into `cursor`.
+
+    Commits per-table rather than once at the very end. Jet's per-
+    transaction work-buffer accumulates ALL the prior-state pages until
+    commit; with millions of rows in a single transaction the buffer
+    quickly hits the 2 GB .mdb hard limit even when the final file
+    would be well under it. Per-table commits let Jet recycle that
+    buffer between tables.
+    """
     table_columns: dict[str, tuple[Column, ...]] = {}
     skipped: set[str] = set()
     batch: list[tuple[Any, ...]] = []
@@ -333,7 +354,12 @@ def _drain(
 
     for ev in events:
         if isinstance(ev, TableSchema):
+            # End of prior table — flush the last batch AND commit so
+            # Jet can release the transaction work-buffer before we
+            # start writing the next table.
             flush()
+            if batch_table is not None:
+                conn.commit()
             # Skip both CBDB__* (matching sqlite_builder default) and the
             # Laravel ops tables hard-listed in the notebook. The
             # `with_internal` flag only affects the CBDB__ check —
