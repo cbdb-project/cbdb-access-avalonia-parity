@@ -1,0 +1,78 @@
+[project]
+name = "cbdb-access-avalonia-parity"
+version = "0.0.1"
+description = "Differential testing harness comparing CBDB Avalonia desktop queries vs CBDB Access."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "CC-BY-NC-SA-4.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "CBDB Project" },
+]
+keywords = ["cbdb", "differential-testing", "parity", "access", "avalonia", "sqlite"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Testing",
+]
+dependencies = [
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# Windows-only at runtime — kept as an extra so CI on Linux can still install
+# the rest of the package without yelling about pyodbc.
+access = [
+    "pyodbc>=5.0",
+    "pywinauto>=0.6.8",
+]
+# Differential-harness runtime
+harness = [
+    "pytest>=8.0",
+    "deepdiff>=7.0",
+]
+# Dev tooling (pytest comes via `harness`; install with `pip install -e .[dev,harness]`)
+dev = [
+    "pytest-cov>=5.0",
+    "ruff>=0.5",
+]
+
+[project.urls]
+Repository = "https://github.com/cbdb-project/cbdb-access-avalonia-parity"
+
+[build-system]
+# setuptools >= 77 is the first release with full PEP 639 support
+# (string `license = "SPDX-EXPR"` + `license-files`). Older versions silently
+# misinterpret these and either drop the LICENSE file from the wheel or fail
+# the build, so we hard-floor here.
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["cbdb_parity"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra -q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E", "F",   # pycodestyle / pyflakes
+    "I",        # isort
+    "B",        # bugbear
+    "UP",       # pyupgrade
+    "RUF",      # ruff-specific
+]
+ignore = [
+    "E501",     # line-too-long — soft-enforced; ruff format handles wrapping
+]
