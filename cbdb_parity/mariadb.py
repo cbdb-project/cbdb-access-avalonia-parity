@@ -129,37 +129,53 @@ def _container_state(name: str) -> str | None:
     return result.stdout.strip() or None
 
 
+def _endpoint_reachable(mdb: MariaDbConfig, *, timeout: float = 1.0) -> bool:
+    """Is something listening on `MARIADB_HOST:MARIADB_PORT`?
+
+    A quick TCP connect probe. We do this BEFORE any container check so
+    a healthy host-installed MariaDB at the configured endpoint isn't
+    blocked by an unrelated stopped container that happens to share
+    `MARIADB_CONTAINER_NAME` (codex P2 finding).
+    """
+    try:
+        with socket.create_connection((mdb.host, mdb.port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
 def ensure_container_running(mdb: MariaDbConfig) -> None:
-    """Best-effort check that the configured container is up.
+    """Best-effort check that something is listening at the configured
+    MariaDB endpoint, with optional `docker start` fallback.
 
-    Outcomes:
-      - The configured `MARIADB_HOST` does NOT resolve to THIS machine
-        — return cleanly. The container check doesn't apply to remote
-        MariaDB targets, and a stale local container with the same
-        name must not block them.
-      - Container is running (or `docker` isn't installed / no such
-        container): return cleanly. The subsequent connection attempt
-        will be the real test.
-      - Container exists, is stopped, host IS local, AND
-        `auto_launch=True`: run `docker start <name>` and wait briefly
-        for the daemon to come up.
-      - Container exists, is stopped, host IS local, AND
-        `auto_launch=False`: raise with the exact `docker start`
-        command the user should run.
-
-    NOTE: this helper uses container EXISTENCE (state via `docker
-    inspect`) rather than the published-port mapping — `docker port`
-    only reports mappings for *running* containers, so checking it here
-    would skip the auto-start branch for the exact case it's meant to
-    serve. The endpoint-vs-container port check still happens later in
-    `_build_mysql_cli_cmd()` where it gates the docker-exec import
-    path; that check is correct for the running-container case.
+    Order of operations:
+      1. Try a quick TCP connect to `MARIADB_HOST:MARIADB_PORT`. If
+         something is listening there, the endpoint is healthy and we
+         return — the container state is irrelevant (the user might be
+         running MariaDB on the host directly, or in a differently-
+         named container that we don't manage).
+      2. Otherwise, if `MARIADB_HOST` doesn't resolve to THIS machine,
+         return — a remote endpoint that's unreachable is not a
+         container problem; let the connection attempt later surface
+         the real error.
+      3. Local host AND endpoint unreachable AND container with
+         `MARIADB_CONTAINER_NAME` exists in `docker ps -a` and is
+         stopped:
+           - If `auto_launch=True`: `docker start <name>` and wait for
+             the daemon to accept connections.
+           - Else: raise with the exact `docker start` command.
+      4. Local host AND endpoint unreachable AND no such container:
+         return (let pymysql.connect produce a clean ConnectionRefused
+         later).
 
     We DO NOT create the container — the user is expected to manage its
     lifecycle (volumes, ports, root password).
     """
-    # Skip entirely for remote / non-local MariaDB hosts: the container's
-    # state is irrelevant to a remote endpoint.
+    # Fast path: if the endpoint is up, nothing else matters.
+    if _endpoint_reachable(mdb):
+        return
+    # Endpoint not reachable. If host is remote, the container check
+    # doesn't apply; let pymysql.connect raise the real error.
     if not _resolves_to_local_machine(mdb.host):
         return
     state = _container_state(mdb.container_name)

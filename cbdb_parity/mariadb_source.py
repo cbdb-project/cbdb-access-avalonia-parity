@@ -84,20 +84,29 @@ _FETCH_CHUNK = 10000
 
 
 def _iter_rows(conn: Any, table: str, columns: tuple[Column, ...]) -> Iterable[Row]:
-    """Yield Row events for `table` in fetchmany batches.
+    """Yield Row events for `table` in fetchmany batches via SSCursor.
 
-    SSCursor (server-side, row-at-a-time) was tried first but turned
-    out to be extremely slow against Jet sinks — each yielded row
-    becomes a round-trip on the MariaDB side AND a per-row queue push
-    on the Python side, and the downstream `_drain()` batches INSERTs
-    only by 1000 anyway. The buffered fetchmany variant matches the
-    proven `mysql2access.ipynb` pattern (which does `fetchall()` per
-    table) and is ~50x faster end-to-end on the CBDB BIOG_* tables.
+    Memory profile matters here: pymysql's default `Cursor` buffers
+    the FULL result set in Python before the first `fetchmany()` call
+    (codex P1 finding). On a real CBDB BIOG_SOURCE_DATA (~1.2M rows)
+    that's hundreds of MB held in Python regardless of the chunked
+    loop, which can OOM smaller hosts. Using `SSCursor` (server-side)
+    reads one batch at a time off the wire so memory stays bounded
+    to roughly `_FETCH_CHUNK * row_width` bytes.
+
+    `fetchmany(N)` over SSCursor still does ONE socket read per N rows
+    (not per row), so the throughput is similar to the default cursor;
+    the win is purely on memory ceiling.
 
     Falls back gracefully when pymysql isn't installed (e.g. in test
-    stubs that hand us a fake connection).
+    stubs that hand us a fake connection): we ask the connection for
+    its default cursor and use whatever it returns.
     """
-    cur = conn.cursor()
+    try:
+        import pymysql.cursors
+        cur = conn.cursor(pymysql.cursors.SSCursor)
+    except (ImportError, AttributeError):
+        cur = conn.cursor()
     try:
         # Backtick-quote the table name; CBDB has no funny characters
         # in identifiers but defensive quoting matches what mysqldump
