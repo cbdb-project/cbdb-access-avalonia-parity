@@ -71,8 +71,11 @@ def _has_unfinished_content(buf: bytes | bytearray) -> bool:
 
 _INSERT_HEAD = re.compile(rb"^\s*INSERT\s+INTO\s+`([^`]+)`\s+VALUES\s*", re.IGNORECASE)
 _CREATE_HEAD = re.compile(rb"^\s*CREATE\s+TABLE\s+`([^`]+)`\s*\(", re.IGNORECASE)
+# Anchor on `(?:^|,)` — column lines may be newline-separated (real CBDB
+# dump) or comma-separated all on one line (synthetic tests / older
+# mysqldump variants). The leading `\s*` swallows any indentation.
 _COLUMN_LINE = re.compile(
-    rb"^\s*`([^`]+)`\s+([A-Za-z][A-Za-z0-9_]*(?:\([^)]*\))?)",
+    rb"(?:^|,)\s*`([^`]+)`\s+([A-Za-z][A-Za-z0-9_]*(?:\([^)]*\))?)",
     re.MULTILINE,
 )
 
