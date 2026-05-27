@@ -52,20 +52,20 @@ def _ensure_cbdb_replay_on_path(access_tests_repo: Path) -> None:
 # because the Avalonia query LEFT JOINs POSTED_TO_ADDR_DATA, which can
 # fan a single posting into >1 row.
 _COMMON_FIELDS_AVALONIA_TO_REPLAY: dict[str, str] = {
-    "person_id":        "c_personid",
-    "name":             "c_name",
-    "name_chn":         "c_name_chn",
-    "index_year":       "c_index_year",
-    "office_code":      "c_office_id",
-    "posting_id":       "c_posting_id",
-    "sequence":         "c_sequence",
-    "first_year":       "c_firstyear",
-    "last_year":        "c_lastyear",
+    "person_id":          "c_personid",
+    "name":               "c_name",
+    "name_chn":           "c_name_chn",
+    "index_year":         "c_index_year",
+    "office_code":        "c_office_id",
+    "posting_id":         "c_posting_id",
+    "sequence":           "c_sequence",
+    "first_year":         "c_firstyear",
+    "last_year":          "c_lastyear",
     "assume_office_code": "c_assume_office_code",
-    "inst_code":        "c_inst_code",
-    "source_id":        "c_source",
-    "index_addr_id":    "c_person_addr_id",
-    "office_addr_id":   "c_office_addr_id",
+    "institution_code":   "c_inst_code",
+    "source_id":          "c_source",
+    "index_address_id":   "c_person_addr_id",
+    "office_address_id":  "c_office_addr_id",
 }
 
 

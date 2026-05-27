@@ -40,53 +40,65 @@ from cbdb_parity.avalonia_query_sql import find_sql_block
 
 @dataclass(frozen=True, slots=True)
 class OfficeQueryRequest:
-    """Mirror of `Cbdb.App.Core.OfficeQueryRequest` (the C# record)."""
+    """Mirror of `Cbdb.App.Core.OfficeQueryRequest` (the C# record).
+
+    Field order matches the C# record's positional constructor
+    parameters exactly so callers that build a request positionally
+    (rare but legal for a dataclass) bind the correct values:
+    PersonKeyword, OfficeCodes, PersonPlaceIds,
+    IncludeSubordinatePersonUnits, OfficePlaceIds,
+    IncludeSubordinateOfficeUnits, UseIndexYearRange, IndexYearFrom,
+    IndexYearTo, UseOfficeYearRange, OfficeYearFrom, OfficeYearTo,
+    DynastyIds, Limit.
+    """
 
     person_keyword: str | None = None
     office_codes: Sequence[int] = ()
-    dynasty_ids: Sequence[int] = ()
+    person_place_ids: Sequence[int] = ()
+    include_subordinate_person_units: bool = False
+    office_place_ids: Sequence[int] = ()
+    include_subordinate_office_units: bool = False
     use_index_year_range: bool = False
     index_year_from: int = 0
     index_year_to: int = 0
     use_office_year_range: bool = False
     office_year_from: int = 0
     office_year_to: int = 0
-    person_place_ids: Sequence[int] = ()
-    office_place_ids: Sequence[int] = ()
-    include_subordinate_person_units: bool = False
-    include_subordinate_office_units: bool = False
+    dynasty_ids: Sequence[int] = ()
     limit: int = 5000
 
 
-# Mirrors the QueryAsync SELECT list (.cs:287-356). 65 columns total.
-# Names match the C# `OfficeQueryRecord` properties (snake_case form)
-# and the indices align with SQL SELECT order. The C# constructor's
-# parameter listing on lines 468-534 visually orders SourceId / Source /
-# Pages / Notes / *Match / PlaceWorkflow / OfficePlaceCount, but each
-# `reader.GetXxx(N)` still reads SQL column N — there is no swap to
-# replicate here.
+# Snake-case mirror of `Cbdb.App.Core.OfficeQueryRecord` POSITIONAL
+# property order. Importantly, this is the RECORD's field order, which
+# differs from the SQL SELECT positional order at exactly two slots:
+# the C# `SqliteOfficeQueryService` reader at .cs:466-535 reads SQL
+# column 58 (`pto.c_source`) into record field 57 (`SourceId`), and SQL
+# column 57 (`posting_place_count.place_count`) into record field 64
+# (`OfficePlaceCount`). The intermediate SQL columns 59..64 each shift
+# down by one slot relative to SELECT order. `office_query()` applies
+# the same remap before zip-mapping to these names.
 _OFFICE_RECORD_FIELDS: tuple[str, ...] = (
-    "person_id",                  # 0  pto.c_personid
+    "person_id",                  # 0
     "name_chn",                   # 1
     "name",                       # 2
     "index_year",                 # 3
     "index_year_type",            # 4
-    "sex_label",                  # 5
-    "person_dynasty",             # 6
+    "sex",                        # 5
+    "dynasty",                    # 6
     "posting_dynasty",            # 7
-    "index_addr_id",              # 8
+    "index_address_id",           # 8
     "index_address",              # 9
     "index_address_type",         # 10
     "posting_id",                 # 11
     "sequence",                   # 12
-    "office_code",                # 13 — CAST(pto.c_office_id AS TEXT)
-    "office_label",               # 14
-    "appt_type_code",             # 15
+    "office_code",                # 13
+    "office",                     # 14
+    "appointment_code",           # 15
     "appointment_type",           # 16
     "assume_office_code",         # 17
     "assume_office",              # 18
     "office_category_id",         # 19
-    "category_label",             # 20
+    "category",                   # 20
     "first_year",                 # 21
     "first_nianhao_code",         # 22
     "first_nianhao",              # 23
@@ -98,7 +110,7 @@ _OFFICE_RECORD_FIELDS: tuple[str, ...] = (
     "first_month",                # 29
     "first_intercalary",          # 30
     "first_day",                  # 31
-    "first_day_gz",               # 32
+    "first_ganzhi_code",          # 32
     "first_ganzhi",               # 33
     "first_ganzhi_pinyin",        # 34
     "last_year",                  # 35
@@ -112,26 +124,44 @@ _OFFICE_RECORD_FIELDS: tuple[str, ...] = (
     "last_month",                 # 43
     "last_intercalary",           # 44
     "last_day",                   # 45
-    "last_day_gz",                # 46
+    "last_ganzhi_code",           # 46
     "last_ganzhi",                # 47
     "last_ganzhi_pinyin",         # 48
-    "inst_code",                  # 49
-    "inst_name_code",             # 50
-    "institution_label",          # 51
-    "office_addr_id",             # 52
+    "institution_code",           # 49
+    "institution_name_code",      # 50
+    "institution",                # 51
+    "office_address_id",          # 52
     "office_address",             # 53
     "office_x_coord",             # 54
     "office_y_coord",             # 55
     "office_xy_count",            # 56
-    "office_place_count",         # 57  posting_place_count.place_count
-    "source_id",                  # 58  pto.c_source
-    "source_label",               # 59
-    "pages",                      # 60
-    "notes",                      # 61
-    "person_place_match",         # 62
-    "office_place_match",         # 63
-    "place_workflow",             # 64
+    "source_id",                  # 57 ← SQL column 58 (pto.c_source)
+    "source",                     # 58 ← SQL column 59 (src.title)
+    "pages",                      # 59 ← SQL column 60
+    "notes",                      # 60 ← SQL column 61
+    "person_place_match",         # 61 ← SQL column 62
+    "office_place_match",         # 62 ← SQL column 63
+    "place_workflow",             # 63 ← SQL column 64
+    "office_place_count",         # 64 ← SQL column 57 (place_count)
 )
+
+
+def _sql_row_to_record_row(row: Sequence[Any]) -> tuple[Any, ...]:
+    """Permute a raw SQL row into C# OfficeQueryRecord positional order.
+
+    The C# reader does `OfficePlaceCount: reader.GetInt32(57)` and
+    `SourceId: reader.GetInt32(58)` even though the SELECT puts
+    place_count at 57 and c_source at 58 — the record's constructor
+    parameters list SourceId BEFORE OfficePlaceCount, so the reader
+    deliberately swaps them. Mirror that here so our zip with
+    `_OFFICE_RECORD_FIELDS` (= record order) yields the same named-
+    value mapping the Avalonia code returns.
+    """
+    if len(row) != 65:
+        raise AssertionError(f"SQL row width {len(row)} != expected 65")
+    # SQL col 57 (place_count) → end; SQL cols 58..64 each shift down
+    # one slot; cols 0..56 unchanged.
+    return (*row[:57], *row[58:65], row[57])
 
 
 def _csharp_params_to_sqlite(sql: str) -> str:
@@ -347,10 +377,8 @@ def office_query(
     with sqlite3.connect(sqlite_path) as conn:
         cursor = conn.execute(sql, params)
         for row in cursor.fetchall():
-            assert len(row) == len(_OFFICE_RECORD_FIELDS), (
-                f"row width {len(row)} != expected {len(_OFFICE_RECORD_FIELDS)}"
-            )
-            rows.append(dict(zip(_OFFICE_RECORD_FIELDS, row, strict=True)))
+            permuted = _sql_row_to_record_row(row)
+            rows.append(dict(zip(_OFFICE_RECORD_FIELDS, permuted, strict=True)))
     return rows
 
 

@@ -189,15 +189,16 @@ def _create_table_sql(schema: TableSchema, access_schema: AccessSchema | None = 
         not_null = " NOT NULL" if ovl is not None and not ovl.nullable else ""
         col_defs.append(f"[{c.name}] {access_type}{not_null}")
 
+    # Intentionally do NOT emit PRIMARY KEY constraints from the
+    # TablesFields.xlsx overlay. The production Access mdb maintained
+    # by `mysql2access` (in $MYSQL2ACCESS_DIR) does not enforce them
+    # either, and the Datadump occasionally contains rows that would
+    # violate the xlsx's declared PKs (Jet then aborts the whole
+    # CREATE→INSERT transaction with IntegrityError 23000). MySQL is
+    # the upstream source of truth for uniqueness; mirroring its data
+    # verbatim is more important here than re-enforcing constraints
+    # the Avalonia / Access query layers never rely on.
     pk_clause = ""
-    if overlay is not None:
-        pk_cols = [c.name for c in overlay.columns if c.is_primary_key]
-        # Only emit PK if every PK-flagged column actually exists in the
-        # Datadump CREATE TABLE — protects against xlsx drift.
-        dump_col_names = {c.name for c in schema.columns}
-        if pk_cols and all(n in dump_col_names for n in pk_cols):
-            quoted = ", ".join(f"[{n}]" for n in pk_cols)
-            pk_clause = f",\n    PRIMARY KEY ({quoted})"
 
     sep = ",\n    "
     return (

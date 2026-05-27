@@ -142,17 +142,30 @@ def test_order_by_limit_appended() -> None:
     assert "LIMIT :limit" in sql
 
 
-def test_field_names_count_matches_csharp_select_width() -> None:
-    """The 65-column field tuple must stay in lockstep with the
-    SqliteOfficeQueryService SELECT. Per the .cs source, every
-    `reader.GetXxx(N)` reads SQL column N; the constructor's visual
-    parameter order differs from SELECT order but there is no actual
-    column swap to mirror here."""
+def test_field_names_match_office_query_record_positional_order() -> None:
+    """The 65-name field tuple must mirror `Cbdb.App.Core.OfficeQueryRecord`
+    in POSITIONAL constructor order — same shape the C# reader produces
+    after its deliberate 57/58 swap relative to SQL SELECT order."""
     fields = office_query_field_names()
     assert len(fields) == 65
-    # Column 57 is `posting_place_count.place_count`; 58 is `pto.c_source`.
-    assert fields[57] == "office_place_count"
-    assert fields[58] == "source_id"
+    # Record position 57 = SourceId; reader reads SQL column 58 there.
+    assert fields[57] == "source_id"
+    # Record position 64 = OfficePlaceCount; reader reads SQL column 57.
+    assert fields[64] == "office_place_count"
+
+
+def test_sql_row_to_record_row_swaps_57_and_64() -> None:
+    """The C# reader swaps SQL positions 57 and 64. `_sql_row_to_record_row`
+    must reproduce that swap so subsequent zip-mapping aligns."""
+    from cbdb_parity.avalonia_office_query import _sql_row_to_record_row
+    raw = tuple(range(65))  # SQL col i has value i
+    permuted = _sql_row_to_record_row(raw)
+    # Positions 0..56 unchanged.
+    assert permuted[:57] == tuple(range(57))
+    # Record pos 57..63 ← SQL cols 58..64 (shifted down).
+    assert permuted[57:64] == tuple(range(58, 65))
+    # Record pos 64 ← SQL col 57.
+    assert permuted[64] == 57
 
 
 def test_person_keyword_wraps_in_percent_signs() -> None:

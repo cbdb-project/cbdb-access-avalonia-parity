@@ -145,7 +145,7 @@ def test_office_pair_smoke_end_to_end(tmp_path: Path) -> None:
     diff = diff_rows(
         avalonia_rows,
         access_rows,
-        key_fields=("person_id", "posting_id", "sequence", "office_addr_id"),
+        key_fields=("person_id", "posting_id", "sequence", "office_address_id"),
         compare_fields=office_query_common_fields(),
     )
 
