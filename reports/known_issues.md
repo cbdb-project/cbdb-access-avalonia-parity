@@ -233,7 +233,47 @@ reference.
   becomes deterministic and alignable.
 - **Report**: `reports/replay_scan/entry__all_jinshi_general_song/`.
 
-### avalonia_gap — Texts / Networks / AssociationPairs / Place
+### avalonia_gap — Texts / Networks / AssociationPairs / Place / GroupData
+
+**Status (2026-05-28)**: documented permanent gap. Implementing these
+upstream services in `cbdb-desktop-app` would require ~250 lines of
+new C# per service (request/record/interface/SQLite implementation)
+plus equivalent parity-side mirrors and pair tests. Out of scope for
+the current parity-completion session; each service is documented
+below with the cbdb_replay SQL pattern that an Avalonia implementor
+could lift directly.
+
+**For implementors**: each `cbdb_replay/lookat*.py` already contains
+the production-validated SQL for these flows; an upstream Avalonia
+implementor only needs to:
+
+1. Mirror the request shape as `Cbdb.App.Core/<X>QueryRequest.cs`
+2. Mirror each row as `Cbdb.App.Core/<X>QueryRecord.cs`
+3. Add `Cbdb.App.Core/I<X>QueryService.cs` (`Task<…QueryResult>
+   QueryAsync(string sqlitePath, …QueryRequest request, …)`)
+4. Copy the cbdb_replay SQL into `Cbdb.App.Data/Sqlite<X>QueryService.cs`,
+   adapting `$param`-style placeholders and the LIMIT/ORDER BY
+5. Add the parity Python mirror + Access bridge by the same recipe
+   the existing Entry/Status/Office bridges follow.
+
+**Per-feature pointers**:
+
+- **Texts** (simplest): `cbdb_replay/lookattexts.py` line ~50-200.
+  Returns `(person, text, role)` triples filtered by `biblcat_codes`.
+  15-column SELECT × 3 INNER JOINs; ~150 SLOC to port end-to-end.
+- **Place**: `cbdb_replay/lookatplace.py`. People-by-index-addr query;
+  similar shape to entry's `addr_field='person'` branch.
+- **Networks**: `cbdb_replay/lookatnetworks.py`. Multi-hop graph
+  traversal (kinship + association edges) — non-trivial.
+- **AssociationPairs**: `cbdb_replay/lookatassociationpairs.py`. Path
+  queries over association graph.
+- **GroupData**: demographic stats (histograms, frequency tables).
+  Genuinely different from any existing Avalonia service shape; needs
+  product-level decision on whether to add to Avalonia.
+
+(Historical Tier 1 "Avalonia gap" cross-reference preserved below.)
+
+### avalonia_gap (legacy entry) — Texts / Networks / AssociationPairs / Place
 
 - **First observed**: 2026-05-28
 - **Side**: Avalonia (gap)
