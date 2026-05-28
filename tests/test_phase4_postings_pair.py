@@ -100,22 +100,11 @@ def test_postings_pair_smoke_end_to_end(tmp_path: Path) -> None:
     person_id = 1762
 
     avalonia_data = cfg.avalonia_repo / "Cbdb.App.Data"
-    import sqlite3
-    try:
-        avalonia_rows = postings_query(
-            sqlite_path,
-            person_id,
-            avalonia_data_dir=avalonia_data,
-        )
-    except sqlite3.OperationalError as exc:
-        if "c_appt_type_code" in str(exc):
-            pytest.skip(
-                "postings_basic: Avalonia upstream SQL references "
-                "non-existent `pto.c_appt_type_code` (actual schema column "
-                "is `c_appt_code`). Same upstream bug as office_basic; see "
-                "reports/known_issues.md for the suppression entry."
-            )
-        raise
+    avalonia_rows = postings_query(
+        sqlite_path,
+        person_id,
+        avalonia_data_dir=avalonia_data,
+    )
     access_rows = postings_query_access(mdb_path, person_id)
 
     diff = diff_rows(

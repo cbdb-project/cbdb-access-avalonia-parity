@@ -1,7 +1,7 @@
 """Access-side bridge for Phase 4 / Tier 2 postings per-person accessor.
 
-16 LEFT JOINs → 15 opening parens before POSTING_DATA, 15 closes
-after first 15 JOINs, 16th JOIN naked.
+15 LEFT JOINs → 14 opening parens before POSTING_DATA, 14 closes
+after first 14 JOINs, 15th JOIN naked.
 """
 
 from __future__ import annotations
@@ -9,7 +9,20 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from datetime import datetime as _datetime
+
 from cbdb_parity.avalonia_postings import _row_to_dict
+
+
+def _stringify_datetime(value: object) -> object:
+    """Access ODBC returns POSTED_TO_*_DATA created_/modified_date as
+    native `datetime.datetime`; SQLite returns the same column as the
+    raw text it was stored as (e.g. '2013-03-27 00:00:00'). Coerce
+    Access-side datetimes to the same string shape so dtype diffs
+    don't drown the real-data diff."""
+    if isinstance(value, _datetime):
+        return value.strftime("%Y-%m-%d %H:%M:%S")
+    return value
 
 
 _ACCESS_SQL = """
@@ -64,7 +77,7 @@ SELECT
     pta.c_created_date,
     pta.c_modified_by,
     pta.c_modified_date
-FROM (((((((((((((((POSTING_DATA pd
+FROM ((((((((((((((POSTING_DATA pd
       LEFT JOIN POSTED_TO_OFFICE_DATA pto
           ON pto.c_posting_id = pd.c_posting_id
          AND pto.c_personid = pd.c_personid)
@@ -73,7 +86,7 @@ FROM (((((((((((((((POSTING_DATA pd
          AND pta.c_office_id = pto.c_office_id
          AND pta.c_personid = pto.c_personid)
       LEFT JOIN OFFICE_CODES oc ON oc.c_office_id = pto.c_office_id)
-      LEFT JOIN APPOINTMENT_CODES appt ON appt.c_appt_code = pto.c_appt_type_code)
+      LEFT JOIN APPOINTMENT_CODES appt ON appt.c_appt_code = pto.c_appt_code)
       LEFT JOIN ASSUME_OFFICE_CODES assume_office ON assume_office.c_assume_office_code = pto.c_assume_office_code)
       LEFT JOIN OFFICE_CATEGORIES cat ON cat.c_office_category_id = pto.c_office_category_id)
       LEFT JOIN NIAN_HAO fy_nh ON fy_nh.c_nianhao_id = pto.c_fy_nh_code)
@@ -105,7 +118,14 @@ def postings_query_access(
         cur = conn.cursor()
         cur.execute(_ACCESS_SQL, person_id)
         for r in cur.fetchall():
-            rows.append(_row_to_dict(tuple(r)))
+            d = _row_to_dict(tuple(r))
+            # Coerce native datetimes to SQLite's stored-text shape;
+            # postings has 4 such columns (created/modified for both
+            # the office record and the address sub-record).
+            for k in ("created_date", "modified_date",
+                      "addr_created_date", "addr_modified_date"):
+                d[k] = _stringify_datetime(d[k])
+            rows.append(d)
         cur.close()
     return rows
 

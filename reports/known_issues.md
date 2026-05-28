@@ -54,6 +54,25 @@ The bottom of each entry adds:
 
 ## Currently suppressed
 
+### [RESOLVED 2026-05-28] office_basic / postings_basic — `c_appt_type_code` fixed upstream
+
+Both Avalonia services now reference the correct schema column
+(`pto.c_appt_code`). `tests/test_phase3d_office_pair.py` and
+`tests/test_phase4_postings_pair.py` pass end-to-end again. Auto-skip
+patterns have been removed from both tests. Two follow-on fixes
+landed alongside the upstream rename:
+
+- `cbdb_parity/access_postings.py`: also referenced the wrong column
+  name in the hand-mirrored Access SQL; corrected.
+- `cbdb_parity/access_postings.py`: added datetime → string coercion
+  for `created_date` / `modified_date` (Access ODBC returns native
+  `datetime.datetime` while SQLite returns the raw stored text;
+  dtype diffs were drowning the real-data diff).
+
+The historical bug description is preserved below for reference.
+
+---
+
 ### office_basic — Avalonia references non-existent `pto.c_appt_type_code`
 
 - **First observed**: 2026-05-28 on Datadump SHA `ed294faed44b` (cbdb_data_20260527.tar.gz)
@@ -79,7 +98,8 @@ The bottom of each entry adds:
   fix is in flight.
 - **Suppress until**: Avalonia `SqliteOfficeQueryService.cs` SELECTs
   the column that actually exists (`c_appt_code`) or the SQLite
-  export layer adds an alias.
+  export layer adds an alias. **RESOLVED 2026-05-28** — upstream
+  patched.
 
 ### postings_basic — Avalonia references non-existent `pto.c_appt_type_code`
 
@@ -101,6 +121,7 @@ The bottom of each entry adds:
   the OperationalError and skips with reference to this file.
 - **Suppress until**: same fix as office_basic — Avalonia code
   SELECTs `c_appt_code` or the SQLite export adds an alias.
+  **RESOLVED 2026-05-28** — upstream patched.
 
 ### kinship_expanded_network — Python port of Avalonia GetExpandedKinshipsAsync deferred
 

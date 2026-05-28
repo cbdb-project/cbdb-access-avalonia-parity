@@ -208,13 +208,38 @@ def _translate_status_to_avalonia(replay_inputs: Any):
 
 
 def _translate_office_to_avalonia(replay_inputs: Any):
-    # Office query is blocked by the upstream `c_appt_type_code`
-    # schema bug — see reports/known_issues.md. The scan documents
-    # this consistently across all office cases.
-    return None, (
-        "Avalonia upstream bug: `pto.c_appt_type_code` does not exist "
-        "in the SQLite schema (see reports/known_issues.md office_basic)."
+    """Map cbdb_replay.lookatoffice.OfficeQueryInputs → Avalonia
+    OfficeQueryRequest. The previous upstream
+    `pto.c_appt_type_code` bug has been fixed in cbdb-desktop-app;
+    office cases now flow through the full pair-diff path.
+    """
+    from cbdb_parity.avalonia_office_query import OfficeQueryRequest
+    yf = getattr(replay_inputs, "year_filter", None)
+    use_index_year_range = False
+    index_year_from = 0
+    index_year_to = 0
+    dynasty_ids: tuple[int, ...] = ()
+    if yf is not None:
+        if yf.mode == "index":
+            use_index_year_range = True
+            index_year_from = int(yf.from_year or 0)
+            index_year_to = int(yf.to_year or 0)
+        elif yf.mode == "dynasty":
+            from_d = int(yf.from_dynasty or 0)
+            to_d = int(yf.to_dynasty or from_d)
+            dynasty_ids = tuple(range(from_d, to_d + 1)) if from_d else ()
+
+    office_codes = tuple(
+        str(c) for c in (getattr(replay_inputs, "office_codes", None) or ())
     )
+    return (OfficeQueryRequest(
+        office_codes=office_codes,
+        use_index_year_range=use_index_year_range,
+        index_year_from=index_year_from,
+        index_year_to=index_year_to,
+        dynasty_ids=dynasty_ids,
+        limit=5000,
+    ), None)
 
 
 _CATEGORY_TRANSLATORS = {
