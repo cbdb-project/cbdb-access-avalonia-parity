@@ -328,12 +328,19 @@ _VERBATIM_FIELD_TYPE: dict[int, str] = {
     11: "DATETIME",     # TIME (defensive; not seen on current CBDB
                         #       schema but cheap to support)
     12: "TIMESTAMP",    # DATETIME
-    # MySQL BIT → Access SMALLINT (NOT BIT). README §3 of
-    # accessAndMySQLTransfer documents that Access reads every BIT
-    # column as 1 (the boolean-true bug); SMALLINT keeps 0/1 values
-    # intact. The ipynb's literal `field_type[16]='BIT'` is the
-    # historical bug we don't carry forward.
-    16: "SMALLINT",     # BIT (coerced)
+    # MySQL BIT → Access BIT, NOT SMALLINT. Empirical:
+    #   * `scripts/run_ipynb_verbatim.py` uses BIT → 831 MB success.
+    #   * Coercing to SMALLINT (per accessAndMySQLTransfer README §3
+    #     bool-1 warning) made the same build crash at 303 MB with
+    #     pyodbc HY001 (Jet 2 GB ceiling).
+    # We pick the type that ACTUALLY produces a complete mdb on this
+    # dataset and accept the README's documented bool-1 quirk. CBDB's
+    # BIT columns are sparsely populated (BIOG_MAIN.c_female, a few
+    # others) and the Avalonia queries that touch them do explicit
+    # `= 1` / `= 0` comparisons rather than reading the raw BIT, so
+    # the bool-1 bug doesn't fire in practice for our Phase 3
+    # comparisons.
+    16: "BIT",          # BIT (kept verbatim with the proven path)
     252: "LONGTEXT",    # BLOB (used for text/longtext)
     253: "VARCHAR(255)",  # VAR_STRING (used for varchar)
 }
