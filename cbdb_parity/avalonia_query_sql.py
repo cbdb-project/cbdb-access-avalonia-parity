@@ -41,20 +41,58 @@ _RAW_BLOCK = re.compile(
     re.DOTALL,
 )
 
+# C# verbatim-string literal `@"..."` (NON-interpolated). Used by
+# SqlitePersonBrowserService and other older `Cbdb.App.Data` files
+# instead of triple-quoted raw strings. We DELIBERATELY exclude the
+# interpolated variants `$@"..."` / `@$"..."` because those contain
+# `{placeholder}` substitutions whose values are known only at
+# runtime — returning them as if they were executable SQL would
+# break callers that feed the result straight to sqlite3 / pyodbc.
+# Interpolated raw strings `$"""..."""` ARE matched by `_RAW_BLOCK`,
+# but their callers in Phase 3 (entry/office/status) substitute
+# `{...}` placeholders explicitly before executing; the verbatim
+# path has no such per-caller hook, so silently passing through
+# templates would yield wrong results.
+_VERBATIM_BLOCK = re.compile(
+    r'(?<![\$@])@"\s*\n'    # opening @" NOT preceded by $ or @
+    r"(.*?)"                # SQL body (lazy, multiline)
+    r'"(?!")',              # closing " NOT followed by another "
+    re.DOTALL,
+)
+
 
 def extract_sql_blocks(cs_path: Path) -> list[str]:
-    """Return every triple-quoted raw-string block in `cs_path`, in order.
+    """Return every C# string-literal SQL block in `cs_path`, in
+    SOURCE-ORDER (top-to-bottom of file).
 
-    Returns a list because a service file typically holds multiple
-    queries (picker-data, query, related-counts, etc.). Callers pick
-    by index or by keyword search.
+    Handles the two literal styles whose source text is GUARANTEED
+    to be executable SQL:
+      - Triple-quoted raw strings `\"\"\"...\"\"\"` (newer
+        `Sqlite*QueryService.cs` files).
+      - Verbatim strings `@"..."` (older
+        `SqlitePersonBrowserService.cs` and friends).
+
+    INTERPOLATED variants (`$@"..."`, `@$"..."`) are EXCLUDED because
+    they contain `{placeholder}` substitutions whose values are
+    determined at C# runtime; silently returning their templates
+    would feed bogus SQL to sqlite3 / pyodbc. Callers that need
+    one of those must extract the SQL by another means (typically
+    by hand-mirroring the C# logic in Python and applying the
+    substitutions there).
+
+    Callers can pick by index OR by keyword search; the source-order
+    invariant matters for index-based picks against files that mix
+    both styles, because raw-then-verbatim concatenation would
+    misalign positional indices vs the actual file layout.
 
     Raises `FileNotFoundError` if `cs_path` doesn't exist.
     """
     if not cs_path.is_file():
         raise FileNotFoundError(f"C# source not found: {cs_path}")
     text = cs_path.read_text(encoding="utf-8")
-    return [m.group(1) for m in _RAW_BLOCK.finditer(text)]
+    matches = list(_RAW_BLOCK.finditer(text)) + list(_VERBATIM_BLOCK.finditer(text))
+    matches.sort(key=lambda m: m.start())
+    return [m.group(1) for m in matches]
 
 
 def find_sql_block(cs_path: Path, must_contain: str) -> str:
