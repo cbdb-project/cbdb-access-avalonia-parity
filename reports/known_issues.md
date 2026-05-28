@@ -257,9 +257,9 @@ upstream Avalonia author should:
 3. Add `Cbdb.App.Core/I<X>QueryService.cs` (`Task<…QueryResult>
    QueryAsync(string sqlitePath, …QueryRequest request, …)`)
 4. Use the cbdb_replay SQL as a STARTING POINT; cross-check against
-   the Access VBA in `cbdb-user-mdb-tests/golden_helpers.py` and
-   the original Form_LookAt*.frm modules (where available) for the
-   full option matrix the form actually supports.
+   the Access VBA in `cbdb-user-mdb-tests/tests/golden_helpers.py`
+   and the original `Form_LookAt*.vb` / `.frm` modules (where
+   available) for the full option matrix the form actually supports.
 5. Add the parity Python mirror + Access bridge by the same recipe
    the existing Entry/Status/Office bridges follow.
 
@@ -272,8 +272,12 @@ AND the scope cbdb_replay does NOT yet cover):
   port end-to-end. cbdb_replay coverage here is reasonably complete
   vs Access.
 - **Place**: `cbdb_replay/lookatplace.py`. Starting point: only the
-  `source='individual'` mode is implemented. Access also supports
-  `source='all-belongings'` and other addr-source modes.
+  `source='individual'` mode is implemented. Access
+  `Form_LookAtPlace.vb` exposes the additional checkbox-driven
+  source modes `Kin`, `Office`, `Status`, `Entry`, `Institution`,
+  `AssocPerson`, and `AssocPlace` — none of which the replay
+  module models yet. An Avalonia implementor should consult the
+  VBA for the full source-mode matrix.
 - **Networks**: `cbdb_replay/lookatnetworks.py`. Starting point:
   only 1-hop non-kin association edges. Access's `network_personal_
   expansion` supports multi-hop traversal, kin+association mixed
