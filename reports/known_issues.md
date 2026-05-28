@@ -29,6 +29,29 @@ The bottom of each entry adds:
   temporally bounded.
 ```
 
+## Empirically verified safe (no longer a concern)
+
+### BIT column integrity — bool-1 read-back bug does NOT fire here
+
+- **Verified**: 2026-05-28 on Datadump SHA `ed294faed44b`
+- **Side**: Access (read-back via pyodbc + Microsoft Access Driver)
+- **Description**: `accessAndMySQLTransfer/README.md §3` warns that
+  Access reads BIT columns back as `1` regardless of stored value
+  (the "all booleans become true" bug). Our verbatim ipynb-pattern
+  mdb builder maps MySQL BIT → Access BIT (matching the ipynb that
+  produces the production `cbdb.mdb`); the alternative SMALLINT
+  coercion crashed the build at 303 MB with the Jet 2 GB
+  temp-file leak.
+- **Empirical check** (BIOG_MAIN.c_female histogram, MariaDB vs the
+  built Access mdb): `{None: 24,265, 0: 576,616, 1: 57,607}` —
+  identical on both sides. The read-back bug does NOT fire in
+  the pyodbc + Microsoft Access Driver path on this dataset, so no
+  parity test gets fooled by it.
+- **What if it ever does fire**: the bug would manifest as
+  Access histogram `{None: 24265, 1: 634223}` (every 0 read back
+  as 1). Trivially re-detectable; re-run the check above on each
+  new Datadump SHA and add a known_issues entry if it diverges.
+
 ## Currently suppressed
 
 ### office_basic — Avalonia references non-existent `pto.c_appt_type_code`

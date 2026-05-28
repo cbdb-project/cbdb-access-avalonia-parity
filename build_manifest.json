@@ -1,0 +1,25 @@
+{
+  "built_at": "2026-05-28T16:48:44.417425+00:00",
+  "datadump": {
+    "date_tag": "20260527",
+    "filename": "cbdb_data_20260527.tar.gz",
+    "sha256": "ed294faed44b36e80169cae8815f83d9d9c5ca3cdb79520c8d058383ad52eb43"
+  },
+  "products": {
+    "mdb": {
+      "builder_version": "1.6c-verbatim-ipynb-mariadb",
+      "path": "C:\\Users\\how612\\Documents\\GitHub\\cbdb-access-avalonia-parity\\.build\\cbdb_data.mdb",
+      "rows_inserted": 5552012,
+      "tables_created": 84,
+      "tables_skipped": []
+    },
+    "sqlite": {
+      "builder_version": "1.2-python-port",
+      "path": "C:\\Users\\how612\\Documents\\GitHub\\cbdb-access-avalonia-parity\\.build\\cbdb.sqlite",
+      "rows_inserted": 5740078,
+      "tables_created": 94,
+      "tables_skipped": []
+    }
+  },
+  "version": 1
+}
