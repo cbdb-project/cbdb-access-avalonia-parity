@@ -81,6 +81,27 @@ The bottom of each entry adds:
   the column that actually exists (`c_appt_code`) or the SQLite
   export layer adds an alias.
 
+### postings_basic — Avalonia references non-existent `pto.c_appt_type_code`
+
+- **First observed**: 2026-05-28 on Datadump SHA `ed294faed44b`
+- **Side**: Avalonia
+- **Class**: Avalonia gap (schema drift)
+- **Description**: `cbdb-desktop-app/Cbdb.App.Data/SqlitePersonBrowserService.cs`
+  GetPostingsAsync SELECTs `pto.c_appt_type_code` via
+  `LEFT JOIN APPOINTMENT_CODES appt ON appt.c_appt_code = pto.c_appt_type_code`.
+  Same upstream bug as `office_basic`: the schema column is
+  `pto.c_appt_code`, not `pto.c_appt_type_code`. The query raises
+  `sqlite3.OperationalError: no such column: pto.c_appt_type_code`
+  on real CBDB SQLite, so the postings-pair test cannot execute the
+  Avalonia side at all.
+- **Root cause**: identical rename inconsistency to the office_basic
+  entry above. Fixing one upstream commit will resolve both.
+- **Suppress rationale**: real Avalonia bug to be fixed upstream.
+  Auto-skip pattern in `tests/test_phase4_postings_pair.py` catches
+  the OperationalError and skips with reference to this file.
+- **Suppress until**: same fix as office_basic — Avalonia code
+  SELECTs `c_appt_code` or the SQLite export adds an alias.
+
 ## Suppression sunset
 
 Per WORK_PLAN §7, every entry in this file should also have a
