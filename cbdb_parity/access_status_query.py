@@ -206,6 +206,7 @@ def status_query_access(
     """
     if len(request.dynasty_ids) > 1:
         from dataclasses import replace
+        import pyodbc
         combined: list[dict[str, Any]] = []
         seen: set[tuple[Any, Any]] = set()
         for dy in request.dynasty_ids:
@@ -218,6 +219,27 @@ def status_query_access(
                     continue
                 seen.add(key)
                 combined.append(row)
+        # Avalonia's `ORDER BY status_label, c_personid, c_sequence`
+        # — re-sort with the actual STATUS_CODES label before clamping.
+        # Without this the merged top-N slice depends on dynasty_ids
+        # iteration order (codex round-12 P1).
+        conn_str = (
+            r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
+            rf"DBQ={mdb_path};"
+        )
+        with pyodbc.connect(conn_str) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT c_status_code, c_status_desc, c_status_desc_chn FROM STATUS_CODES")
+            status_labels: dict[str, str] = {}
+            for code, desc, desc_chn in cur.fetchall():
+                label = desc_chn if desc_chn is not None else desc
+                status_labels[str(code)] = label if label is not None else ""
+            cur.close()
+        combined.sort(key=lambda r: (
+            status_labels.get(str(r.get("status_code") or ""), ""),
+            r.get("person_id") if r.get("person_id") is not None else -1,
+            r.get("sequence") if r.get("sequence") is not None else -1,
+        ))
         return combined[: max(1, min(request.limit, 100000))]
     return _status_query_access_single(
         mdb_path, request, access_tests_repo=access_tests_repo

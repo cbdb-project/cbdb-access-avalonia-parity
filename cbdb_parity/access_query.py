@@ -244,6 +244,7 @@ def entry_query_access(
     """
     if len(request.dynasty_ids) > 1:
         from dataclasses import replace
+        import pyodbc
         combined: list[dict[str, Any]] = []
         seen: set[tuple[Any, Any]] = set()
         for dy in request.dynasty_ids:
@@ -256,16 +257,25 @@ def entry_query_access(
                     continue
                 seen.add(key)
                 combined.append(row)
-        # Mirror Avalonia's final clamp: the post-merged set is
-        # already sorted within each per-dy slice but the global
-        # order needs a final pass. Use the same key the single-dy
-        # path uses (entry_label is not available here without re-
-        # fetching ENTRY_CODES; sort by year/person_id/sequence as a
-        # stable proxy — the single-dy ORDER BY contract held within
-        # each input partition, and the cross-partition order is
-        # constrained only by the same total-row LIMIT clamp on
-        # both sides).
+        # Avalonia's `ORDER BY entry_label, ed.c_year, b.c_personid,
+        # ed.c_sequence` is the same on the merged set — re-sort with
+        # the actual `entry_label` (COALESCE(c_entry_desc_chn,
+        # c_entry_desc) from ENTRY_CODES) before clamping.
+        conn_str = (
+            r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
+            rf"DBQ={mdb_path};"
+        )
+        with pyodbc.connect(conn_str) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT c_entry_code, c_entry_desc, c_entry_desc_chn FROM ENTRY_CODES")
+            entry_labels: dict[str, str] = {}
+            for code, desc, desc_chn in cur.fetchall():
+                # COALESCE(desc_chn, desc) — fall through only on NULL.
+                label = desc_chn if desc_chn is not None else desc
+                entry_labels[str(code)] = label if label is not None else ""
+            cur.close()
         combined.sort(key=lambda r: (
+            entry_labels.get(str(r.get("entry_code") or ""), ""),
             r.get("entry_year") if r.get("entry_year") is not None else -10**9,
             r.get("person_id") if r.get("person_id") is not None else -1,
             r.get("sequence") if r.get("sequence") is not None else -1,

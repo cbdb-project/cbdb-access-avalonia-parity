@@ -249,6 +249,7 @@ def office_query_access(
     """
     if len(request.dynasty_ids) > 1:
         from dataclasses import replace
+        import pyodbc
         combined: list[dict[str, Any]] = []
         seen: set[tuple[Any, ...]] = set()
         for dy in request.dynasty_ids:
@@ -256,16 +257,47 @@ def office_query_access(
             for row in _office_query_access_single(
                 mdb_path, sub, access_tests_repo=access_tests_repo
             ):
+                # Use the actual emitted field names — not the C# alias
+                # names. `office_code` and `office_address_id` are what
+                # `_replay_row_to_avalonia_shape` produces; the previous
+                # `office_id` / `office_addr_id` keys always read None
+                # and silently collapsed distinct multi-address rows
+                # (codex round-12 P1).
                 key = (
                     row.get("person_id"),
                     row.get("posting_id"),
-                    row.get("office_id"),
-                    row.get("office_addr_id"),
+                    row.get("office_code"),
+                    row.get("office_address_id"),
                 )
                 if key in seen:
                     continue
                 seen.add(key)
                 combined.append(row)
+        # Avalonia's ORDER BY is `office_label, c_firstyear, c_personid,
+        # c_posting_id, c_sequence, c_office_addr_id`. Re-fetch the
+        # OFFICE_CODES labels once for the merged sort.
+        conn_str = (
+            r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
+            rf"DBQ={mdb_path};"
+        )
+        with pyodbc.connect(conn_str) as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT c_office_id, c_office_chn, c_office_trans, c_office_pinyin FROM OFFICE_CODES")
+            office_labels: dict[str, str] = {}
+            for oid, chn, trans, py in cur.fetchall():
+                # Avalonia uses COALESCE(c_office_chn, c_office_trans,
+                # c_office_pinyin). Mirror that fallback chain.
+                label = chn if chn is not None else (trans if trans is not None else py)
+                office_labels[str(oid)] = label if label is not None else ""
+            cur.close()
+        combined.sort(key=lambda r: (
+            office_labels.get(str(r.get("office_code") or ""), ""),
+            r.get("first_year") if r.get("first_year") is not None else -10**9,
+            r.get("person_id") if r.get("person_id") is not None else -1,
+            r.get("posting_id") if r.get("posting_id") is not None else -1,
+            r.get("sequence") if r.get("sequence") is not None else -1,
+            r.get("office_address_id") if r.get("office_address_id") is not None else -1,
+        ))
         return combined[: max(1, min(request.limit, 100000))]
     return _office_query_access_single(
         mdb_path, request, access_tests_repo=access_tests_repo
