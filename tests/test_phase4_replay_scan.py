@@ -151,15 +151,15 @@ def _translate_entry_to_avalonia(replay_inputs: Any):
     EntryQueryRequest. Returns (request, skip_reason)."""
     from cbdb_parity.avalonia_query import EntryQueryRequest
 
-    # Avalonia's entry query filters by ENTRY addresses, not person
-    # addresses; if the Access input uses addr_field='person', no
-    # equivalent Avalonia call exists.
-    if replay_inputs.addr_ids and getattr(replay_inputs, "addr_field", None) == "person":
-        return None, (
-            "Avalonia EntryQueryRequest only supports entry-address filtering "
-            "(`place_ids` maps to `entry_addr_id`); the Access input uses "
-            "`addr_field='person'` which has no Avalonia analogue."
-        )
+    # AddrField passthrough: Avalonia's EntryQueryRequest now exposes
+    # the same 'entry' / 'person' switch that Access has (see
+    # EntryQueryRequest.AddrField and SqliteEntryQueryService.cs
+    # PlaceIds block). Any other value falls back to 'entry'.
+    addr_field = (
+        "person"
+        if getattr(replay_inputs, "addr_field", None) == "person"
+        else "entry"
+    )
 
     use_index = replay_inputs.year_mode == "index"
     use_entry = replay_inputs.year_mode == "entry"
@@ -174,6 +174,7 @@ def _translate_entry_to_avalonia(replay_inputs: Any):
     return (EntryQueryRequest(
         entry_codes=tuple(str(c) for c in (replay_inputs.entry_codes or ())),
         place_ids=tuple(replay_inputs.addr_ids or ()),
+        addr_field=addr_field,
         include_subordinate_units=bool(getattr(replay_inputs, "include_subunits", False)),
         use_index_year_range=use_index,
         index_year_from=int(replay_inputs.from_year or 0) if use_index else 0,

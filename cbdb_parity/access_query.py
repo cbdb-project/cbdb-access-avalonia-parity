@@ -177,10 +177,16 @@ def _avalonia_request_to_replay_inputs(
 
     addr_ids = list(request.place_ids) if request.place_ids else None
 
+    # AddrField passthrough: Avalonia's "entry" maps directly to
+    # cbdb_replay's "entry"; Avalonia's "person" maps to cbdb_replay's
+    # "person". The upstream EntryQueryRequest enforces the same
+    # vocabulary (any other value falls back to "entry").
+    addr_field_replay: str = "person" if request.addr_field == "person" else "entry"
+
     return EntryQueryInputs(
         entry_codes=entry_codes_int,
         addr_ids=addr_ids,
-        addr_field="entry",
+        addr_field=addr_field_replay,  # type: ignore[arg-type]
         include_subunits=request.include_subordinate_units,
         use_xy_radius=False,
         year_mode=year_mode,  # type: ignore[arg-type]

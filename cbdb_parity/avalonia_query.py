@@ -50,6 +50,9 @@ class EntryQueryRequest:
     entry_year_to: int = 0
     dynasty_ids: Sequence[int] = ()
     limit: int = 5000
+    # "entry" filters by ed.c_entry_addr_id; "person" filters by
+    # b.c_index_addr_id. Mirrors the upstream EntryQueryRequest.AddrField.
+    addr_field: str = "entry"
 
 
 # The 35 columns (in order) that `SqliteEntryQueryService.QueryAsync`
@@ -114,17 +117,27 @@ def _build_entry_query_sql(
         sql += f"\n  AND ed.c_entry_code IN ({codes_in})"
 
     # 3. place_id IN (...) — plain or subordinate-units variant.
+    # AddrField picks which column the IN-filter targets:
+    #   "person" → b.c_index_addr_id  (person's index address)
+    #   "entry"  → ed.c_entry_addr_id (the entry's own address)
+    # Anything other than "person" is treated as "entry" (preserves
+    # the historical default and matches the upstream C# fallback).
     if request.place_ids:
+        addr_column = (
+            "b.c_index_addr_id"
+            if request.addr_field == "person"
+            else "ed.c_entry_addr_id"
+        )
         place_in = ", ".join(f":placeId{i}" for i in range(len(request.place_ids)))
         if request.include_subordinate_units:
             sql += (
-                f"\n  AND (ed.c_entry_addr_id IN ({place_in}) "
+                f"\n  AND ({addr_column} IN ({place_in}) "
                 f"OR EXISTS (SELECT 1 FROM ZZZ_BELONGS_TO bt "
-                f"WHERE bt.c_addr_id = ed.c_entry_addr_id "
+                f"WHERE bt.c_addr_id = {addr_column} "
                 f"AND bt.c_belongs_to IN ({place_in})))"
             )
         else:
-            sql += f"\n  AND ed.c_entry_addr_id IN ({place_in})"
+            sql += f"\n  AND {addr_column} IN ({place_in})"
 
     # 4. trailing ORDER BY + LIMIT.
     # Faithful replay: keep Avalonia's exact ORDER BY. The Access bridge
