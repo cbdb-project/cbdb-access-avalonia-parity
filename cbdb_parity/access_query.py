@@ -60,21 +60,65 @@ def entry_query_common_fields() -> tuple[str, ...]:
     return tuple(_COMMON_FIELDS_AVALONIA_TO_REPLAY.keys())
 
 
-def _avalonia_request_to_replay_inputs(request: EntryQueryRequest) -> Any:
+def _lookup_dynasty_year_range_entry(
+    mdb_path: Path,
+    dynasty_id: int,
+) -> tuple[int, int, int, int] | None:
+    """Look up `(from_dynasty, to_dynasty, from_dynasty_begin,
+    to_dynasty_end)` for a single Avalonia `dynasty_id` from the
+    DYNASTIES table. Returns `None` when the id has no row.
+
+    This is the entry-bridge twin of
+    `cbdb_parity.access_status_query._lookup_dynasty_year_range`. The
+    two could share an implementation, but they currently live in
+    separate modules to keep the access_query / access_status_query
+    bridges independent of each other.
+    """
+    import pyodbc
+
+    conn_str = (
+        r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
+        rf"DBQ={mdb_path};"
+    )
+    with pyodbc.connect(conn_str) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT c_dy, c_start, c_end FROM DYNASTIES WHERE c_dy = ?",
+            int(dynasty_id),
+        )
+        row = cur.fetchone()
+        cur.close()
+    if row is None or row[0] is None:
+        return None
+    dy, start, end = row
+    return int(dy), int(dy), int(start or 0), int(end or 0)
+
+
+def _avalonia_request_to_replay_inputs(
+    request: EntryQueryRequest,
+    *,
+    mdb_path: Path | None = None,
+) -> Any:
     """Map cbdb_parity.avalonia_query.EntryQueryRequest →
     cbdb_replay.lookatentry.EntryQueryInputs.
 
     The replay class has a different shape (year_mode strings, separate
     addr_ids/addr_field, dynasty range pair rather than list of ids).
-    The conservative mapping below picks ALL/none/full-range for the
-    fields Avalonia doesn't expose; Phase 3c smoke uses requests that
-    only exercise the common cross-section.
+    Single-dynasty selections are translated via DYNASTIES lookup;
+    multi-dynasty is rejected (same reason as `access_status_query`:
+    cbdb_replay's contiguous `from/to_dynasty` range would silently
+    broaden a multi-id set into the dynasties in between).
     """
     from cbdb_replay.lookatentry import EntryQueryInputs
 
     year_mode: str = "none"
     from_year: int | None = None
     to_year: int | None = None
+    from_dynasty: int = -1
+    to_dynasty: int = -1
+    from_dynasty_begin: int | None = None
+    to_dynasty_end: int | None = None
+
     if request.use_entry_year_range:
         year_mode = "entry"
         from_year = min(request.entry_year_from, request.entry_year_to)
@@ -84,10 +128,35 @@ def _avalonia_request_to_replay_inputs(request: EntryQueryRequest) -> Any:
         from_year = min(request.index_year_from, request.index_year_to)
         to_year = max(request.index_year_from, request.index_year_to)
     elif request.dynasty_ids:
-        # cbdb_replay's dynasty mode uses a single from/to pair, not a
-        # list. For the initial parity smoke we pin to "none" and let
-        # caller use entry_codes / address filters instead.
-        year_mode = "none"
+        # See access_status_query for the multi-dynasty rationale:
+        # cbdb_replay's dynasty mode is a contiguous range, not an
+        # exact set; collapsing a non-singleton selection would
+        # silently include intermediate dynasties.
+        if len(request.dynasty_ids) > 1:
+            raise NotImplementedError(
+                f"dynasty_ids={tuple(request.dynasty_ids)!r}: "
+                f"cbdb_replay/lookatentry only models a contiguous "
+                f"from/to dynasty range, not an exact set. Multi-"
+                f"dynasty selections with gaps would silently broaden "
+                f"the Access-side filter to include intermediate "
+                f"dynasties. Restrict the parity input to a single "
+                f"dynasty until the bridge supports per-id replay."
+            )
+        if mdb_path is None:
+            raise RuntimeError(
+                "dynasty_ids translation requires `mdb_path` so "
+                "DYNASTIES can be queried for the begin/end year range."
+            )
+        looked = _lookup_dynasty_year_range_entry(
+            mdb_path, int(request.dynasty_ids[0])
+        )
+        if looked is not None:
+            from_dynasty, to_dynasty, from_dynasty_begin, to_dynasty_end = looked
+            year_mode = "dynasty"
+        # else: leave year_mode='none' — DYNASTIES row missing should
+        # be exceedingly rare; caller will see zero rows on the
+        # Access side and a real diff on the Avalonia side, which is
+        # the right surface.
 
     entry_codes = list(request.entry_codes) if request.entry_codes else None
     # cbdb_replay expects int entry codes; the Avalonia request uses str.
@@ -113,6 +182,10 @@ def _avalonia_request_to_replay_inputs(request: EntryQueryRequest) -> Any:
         year_mode=year_mode,  # type: ignore[arg-type]
         from_year=from_year,
         to_year=to_year,
+        from_dynasty=from_dynasty,
+        to_dynasty=to_dynasty,
+        from_dynasty_begin=from_dynasty_begin,
+        to_dynasty_end=to_dynasty_end,
     )
 
 
@@ -183,7 +256,7 @@ def entry_query_access(
     import pyodbc
     from cbdb_replay.lookatentry import run as replay_run
 
-    inputs = _avalonia_request_to_replay_inputs(request)
+    inputs = _avalonia_request_to_replay_inputs(request, mdb_path=mdb_path)
     conn_str = (
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
         rf"DBQ={mdb_path};"
