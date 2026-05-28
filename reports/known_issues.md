@@ -145,6 +145,37 @@ The bottom of each entry adds:
 - **Suppress until**: Avalonia adds a demographic-aggregation
   service or method.
 
+### entry_all_jinshi_general_song — dynasty filter semantic divergence
+
+- **First observed**: 2026-05-28 on Datadump SHA `ed294faed44b`, surfaced by
+  `tests/test_phase4_replay_scan.py::test_replay_scan[entry-all_jinshi_general_song]`.
+- **Side**: both (different question, same name)
+- **Class**: shape-mismatch (query semantics)
+- **Description**: For "all entries in Song dynasty" with no other
+  filters, Avalonia returns 4919 rows while cbdb_replay returns 4993,
+  overlapping on only 144 rows. Sampling the only-in-X buckets shows
+  the two backends are matching **different sets of people**:
+  Avalonia filters `BIOG_MAIN.c_dy IN (dynasty_ids)` — i.e. "entries
+  of people whose dynasty IS Song"; cbdb_replay's dynasty mode
+  filters by the 960-1279 year range against an entry/index year
+  field — i.e. "entries that happened during Song years". A person
+  whose c_dy is Tang but who has an entry in 1000 appears on one
+  side only, and vice versa.
+- **Root cause**: same human-language label ("dynasty filter") covers
+  two genuinely different SQL predicates. Neither side is wrong;
+  they answer different questions.
+- **Suppress rationale**: this is not a bug to fix on either side —
+  it's a semantic mismatch the parity harness was designed to
+  surface. Resolution requires a product-level decision on which
+  semantics "dynasty filter" should mean, then aligning both backends
+  on that. Until then, the scan keeps the case as a documented red
+  marker so the divergence stays visible.
+- **Suppress until**: a product-level alignment lands on either side
+  (or the scan switches this case to a narrower question both sides
+  can agree on, e.g. dropping dynasty mode and using explicit
+  `c_year` ranges).
+- **Report**: `reports/replay_scan/entry__all_jinshi_general_song/`.
+
 ### avalonia_gap — Texts / Networks / AssociationPairs / Place
 
 - **First observed**: 2026-05-28
