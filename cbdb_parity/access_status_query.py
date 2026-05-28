@@ -133,6 +133,28 @@ def _avalonia_request_to_replay_inputs(
         from_year = min(request.index_year_from, request.index_year_to)
         to_year = max(request.index_year_from, request.index_year_to)
     elif request.dynasty_ids:
+        # cbdb_replay.lookatstatus models `year_mode='dynasty'` as a
+        # CONTIGUOUS `from_dynasty..to_dynasty` range, not an exact set
+        # (StatusQueryInputs has no `dynasty_ids: list[int]` slot).
+        # Avalonia, by contrast, applies `b.c_dy IN (dynasty_ids)`
+        # exactly — see `SqliteStatusQueryService.cs` line ~277. For a
+        # non-singleton selection with gaps (e.g. (6, 15) = Tang +
+        # Song, skipping dynasties 7-14), collapsing to MIN/MAX would
+        # widen the Access-side ground truth to include the dynasties
+        # in between — silently wrong, not surfaced as a diff. Reject
+        # multi-dynasty here; single-dynasty (the only case we have
+        # in the user-mdb-tests scan today) is faithful because
+        # from_dynasty == to_dynasty.
+        if len(request.dynasty_ids) > 1:
+            raise NotImplementedError(
+                f"dynasty_ids={tuple(request.dynasty_ids)!r}: cbdb_replay/"
+                f"lookatstatus only models a contiguous from/to dynasty "
+                f"range, not an exact set. Multi-dynasty selections with "
+                f"gaps would silently broaden the Access-side filter to "
+                f"include intermediate dynasties. Extend the bridge with "
+                f"per-id year-range expansion or restrict the parity "
+                f"input to a single dynasty."
+            )
         if mdb_path is None:
             raise RuntimeError(
                 "dynasty_ids translation requires `mdb_path` so DYNASTIES "
