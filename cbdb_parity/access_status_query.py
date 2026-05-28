@@ -110,9 +110,16 @@ def _replay_row_to_avalonia_shape(replay_row: dict[str, Any]) -> dict[str, Any]:
       - `status_code`: int → str (Avalonia does CAST(... AS TEXT)).
       - `sequence`: NULL → 0 (Avalonia does COALESCE(..., 0)).
     """
+    import math
+
     out: dict[str, Any] = {}
     for av_field, replay_col in _COMMON_FIELDS_AVALONIA_TO_REPLAY.items():
         value = replay_row.get(replay_col)
+        # pandas NaN → None (see access_query.py _replay_row_to_avalonia_shape
+        # for the full rationale; both shape functions need the same
+        # SQL-NULL normalisation).
+        if isinstance(value, float) and math.isnan(value):
+            value = None
         if av_field == "status_code" and value is not None:
             value = str(value)
         elif av_field == "sequence" and value is None:

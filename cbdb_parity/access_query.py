@@ -118,10 +118,29 @@ def _avalonia_request_to_replay_inputs(request: EntryQueryRequest) -> Any:
 
 def _replay_row_to_avalonia_shape(replay_row: dict[str, Any]) -> dict[str, Any]:
     """Project a cbdb_replay/lookatentry row dict onto the Avalonia
-    field names, restricted to the common-fields cross-section."""
+    field names, restricted to the common-fields cross-section.
+
+    Critically: `cbdb_replay` returns rows that came from pandas
+    `DataFrame.to_dict("records")`, which materialises SQL NULL as
+    `float('nan')` (NaN), NOT Python `None`. Avalonia's sqlite3
+    output uses real `None`. Without this coercion every NULL-bearing
+    column produces a spurious value_mismatch in `diff_rows()` (200
+    rows x NULL `entry_address_id` -> 198 false mismatches on
+    entry_basic, observed 2026-05-28). We coerce NaN → None here so
+    both sides compare on the same SQL-NULL sentinel.
+    """
+    import math
+
     out: dict[str, Any] = {}
     for av_field, replay_col in _COMMON_FIELDS_AVALONIA_TO_REPLAY.items():
         value = replay_row.get(replay_col)
+        # pandas NaN → SQL NULL → Avalonia None. `isinstance(v, float)
+        # and math.isnan(v)` is the canonical NaN check (Python's `v is
+        # nan` doesn't work because NaN != NaN). Apply BEFORE the
+        # entry_code str() coercion so we don't accidentally stringify
+        # `nan`.
+        if isinstance(value, float) and math.isnan(value):
+            value = None
         # entry_code arrives as int from Access (POSTED_TO_OFFICE_DATA has int
         # codes); Avalonia returns it as text (CAST in the SELECT). Normalise.
         if av_field == "entry_code" and value is not None:

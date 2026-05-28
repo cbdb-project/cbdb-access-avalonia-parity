@@ -182,9 +182,17 @@ def _replay_row_to_avalonia_shape(replay_row: dict[str, Any]) -> dict[str, Any]:
       part of `key_fields` in test_phase3d_office_pair), producing
       false only-in-X mismatches for postings with NULL sequence.
     """
+    import math
+
     out: dict[str, Any] = {}
     for av_field, replay_col in _COMMON_FIELDS_AVALONIA_TO_REPLAY.items():
         value = replay_row.get(replay_col)
+        # pandas NaN (from `DataFrame.to_dict('records')` on SQL NULL)
+        # → real Python None so the diff against Avalonia's sqlite3
+        # output (which returns None) matches on SQL-NULL columns
+        # instead of every NaN-bearing row becoming a value_mismatch.
+        if isinstance(value, float) and math.isnan(value):
+            value = None
         if av_field == "office_code" and value is not None:
             value = str(value)
         elif av_field == "sequence" and value is None:
