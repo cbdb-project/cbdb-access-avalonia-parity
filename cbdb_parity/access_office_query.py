@@ -280,7 +280,10 @@ def office_query_access(
             r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
             rf"DBQ={mdb_path};"
         )
-        with pyodbc.connect(conn_str) as conn:
+        # pyodbc context exit commits but does not close — explicit
+        # close to avoid leaking ODBC handles (codex round-13 P2).
+        conn = pyodbc.connect(conn_str)
+        try:
             cur = conn.cursor()
             cur.execute("SELECT c_office_id, c_office_chn, c_office_trans, c_office_pinyin FROM OFFICE_CODES")
             office_labels: dict[str, str] = {}
@@ -290,6 +293,8 @@ def office_query_access(
                 label = chn if chn is not None else (trans if trans is not None else py)
                 office_labels[str(oid)] = label if label is not None else ""
             cur.close()
+        finally:
+            conn.close()
         combined.sort(key=lambda r: (
             office_labels.get(str(r.get("office_code") or ""), ""),
             r.get("first_year") if r.get("first_year") is not None else -10**9,

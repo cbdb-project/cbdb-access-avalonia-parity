@@ -265,7 +265,12 @@ def entry_query_access(
             r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
             rf"DBQ={mdb_path};"
         )
-        with pyodbc.connect(conn_str) as conn:
+        # NB: pyodbc's `Connection.__exit__` commits/rolls back but
+        # does NOT close the handle. We close explicitly via try/
+        # finally to avoid leaking ODBC handles across many multi-
+        # dynasty calls (codex round-13 P2).
+        conn = pyodbc.connect(conn_str)
+        try:
             cur = conn.cursor()
             cur.execute("SELECT c_entry_code, c_entry_desc, c_entry_desc_chn FROM ENTRY_CODES")
             entry_labels: dict[str, str] = {}
@@ -274,6 +279,8 @@ def entry_query_access(
                 label = desc_chn if desc_chn is not None else desc
                 entry_labels[str(code)] = label if label is not None else ""
             cur.close()
+        finally:
+            conn.close()
         combined.sort(key=lambda r: (
             entry_labels.get(str(r.get("entry_code") or ""), ""),
             r.get("entry_year") if r.get("entry_year") is not None else -10**9,

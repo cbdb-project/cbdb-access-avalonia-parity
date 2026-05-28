@@ -227,7 +227,10 @@ def status_query_access(
             r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
             rf"DBQ={mdb_path};"
         )
-        with pyodbc.connect(conn_str) as conn:
+        # pyodbc context exit commits but does not close — explicit
+        # close to avoid leaking ODBC handles (codex round-13 P2).
+        conn = pyodbc.connect(conn_str)
+        try:
             cur = conn.cursor()
             cur.execute("SELECT c_status_code, c_status_desc, c_status_desc_chn FROM STATUS_CODES")
             status_labels: dict[str, str] = {}
@@ -235,6 +238,8 @@ def status_query_access(
                 label = desc_chn if desc_chn is not None else desc
                 status_labels[str(code)] = label if label is not None else ""
             cur.close()
+        finally:
+            conn.close()
         combined.sort(key=lambda r: (
             status_labels.get(str(r.get("status_code") or ""), ""),
             r.get("person_id") if r.get("person_id") is not None else -1,
