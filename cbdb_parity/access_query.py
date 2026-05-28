@@ -80,7 +80,11 @@ def _lookup_dynasty_year_range_entry(
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
         rf"DBQ={mdb_path};"
     )
-    with pyodbc.connect(conn_str) as conn:
+    # `with pyodbc.connect(...)` commits on __exit__ but does not
+    # close the handle; use try/finally to avoid leaking ODBC
+    # handles (codex round-13 P2).
+    conn = pyodbc.connect(conn_str)
+    try:
         cur = conn.cursor()
         cur.execute(
             "SELECT c_dy, c_start, c_end FROM DYNASTIES WHERE c_dy = ?",
@@ -88,6 +92,8 @@ def _lookup_dynasty_year_range_entry(
         )
         row = cur.fetchone()
         cur.close()
+    finally:
+        conn.close()
     if row is None or row[0] is None:
         return None
     dy, start, end = row
@@ -337,7 +343,10 @@ def _entry_query_access_single(
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
         rf"DBQ={mdb_path};"
     )
-    with pyodbc.connect(conn_str) as conn:
+    # pyodbc context exit commits but does not close — explicit
+    # close to avoid leaking ODBC handles (codex round-13 P2).
+    conn = pyodbc.connect(conn_str)
+    try:
         df = replay_run(conn, inputs)
         # Load the ENTRY_CODES label map so we can mirror Avalonia's
         # `ORDER BY entry_label, year, personid, sequence LIMIT N`
@@ -352,6 +361,8 @@ def _entry_query_access_single(
             # Mirroring `desc_chn is not None` (NOT `if desc_chn`).
             entry_labels[int(code)] = desc_chn if desc_chn is not None else desc
         cursor.close()
+    finally:
+        conn.close()
 
     records = df.to_dict("records")
 

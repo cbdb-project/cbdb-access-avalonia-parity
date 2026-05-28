@@ -345,7 +345,10 @@ def _office_query_access_single(
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
         rf"DBQ={mdb_path};"
     )
-    with pyodbc.connect(conn_str) as conn:
+    # pyodbc context exit commits but does not close — explicit
+    # close to avoid leaking ODBC handles (codex round-13 P2).
+    conn = pyodbc.connect(conn_str)
+    try:
         df = replay_run(conn, inputs)
         cursor = conn.cursor()
 
@@ -412,6 +415,8 @@ def _office_query_access_single(
                     )
 
         cursor.close()
+    finally:
+        conn.close()
 
     # Build the expanded record list. Rows without a POSTED_TO_ADDR_DATA
     # match get a single output row with c_office_addr_id = None

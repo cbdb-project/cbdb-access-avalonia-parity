@@ -66,7 +66,8 @@ def _lookup_dynasty_year_range(
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
         rf"DBQ={mdb_path};"
     )
-    with pyodbc.connect(conn_str) as conn:
+    conn = pyodbc.connect(conn_str)
+    try:
         cur = conn.cursor()
         cur.execute(
             f"SELECT MIN(c_dy), MAX(c_dy), MIN(c_start), MAX(c_end) "
@@ -75,6 +76,8 @@ def _lookup_dynasty_year_range(
         )
         row = cur.fetchone()
         cur.close()
+    finally:
+        conn.close()
     if row is None or row[0] is None:
         return None
     return int(row[0]), int(row[1]), int(row[2] or 0), int(row[3] or 0)
@@ -271,7 +274,8 @@ def _status_query_access_single(
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
         rf"DBQ={mdb_path};"
     )
-    with pyodbc.connect(conn_str) as conn:
+    conn = pyodbc.connect(conn_str)
+    try:
         df = replay_run(conn, inputs)
         # STATUS_CODES is small (~hundreds of rows); fetch once for the
         # ORDER BY mirror. Avalonia uses
@@ -285,6 +289,8 @@ def _status_query_access_single(
             label = desc_chn if desc_chn is not None else desc
             status_labels[int(code)] = label
         cursor.close()
+    finally:
+        conn.close()
 
     records = df.to_dict("records")
 
