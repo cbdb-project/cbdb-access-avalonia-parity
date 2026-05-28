@@ -179,9 +179,14 @@ def _avalonia_request_to_replay_inputs(
 
     # AddrField passthrough: Avalonia's "entry" maps directly to
     # cbdb_replay's "entry"; Avalonia's "person" maps to cbdb_replay's
-    # "person". The upstream EntryQueryRequest enforces the same
-    # vocabulary (any other value falls back to "entry").
-    addr_field_replay: str = "person" if request.addr_field == "person" else "entry"
+    # "person". Comparison is case-insensitive to mirror the upstream
+    # C# `StringComparison.OrdinalIgnoreCase` check; any other value
+    # falls back to "entry".
+    addr_field_replay: str = (
+        "person"
+        if (request.addr_field or "").casefold() == "person"
+        else "entry"
+    )
 
     return EntryQueryInputs(
         entry_codes=entry_codes_int,

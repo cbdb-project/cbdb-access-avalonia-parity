@@ -120,12 +120,14 @@ def _build_entry_query_sql(
     # AddrField picks which column the IN-filter targets:
     #   "person" → b.c_index_addr_id  (person's index address)
     #   "entry"  → ed.c_entry_addr_id (the entry's own address)
+    # Comparison is case-insensitive to match the upstream C# code
+    # (`StringComparison.OrdinalIgnoreCase` in SqliteEntryQueryService).
     # Anything other than "person" is treated as "entry" (preserves
     # the historical default and matches the upstream C# fallback).
     if request.place_ids:
         addr_column = (
             "b.c_index_addr_id"
-            if request.addr_field == "person"
+            if (request.addr_field or "").casefold() == "person"
             else "ed.c_entry_addr_id"
         )
         place_in = ", ".join(f":placeId{i}" for i in range(len(request.place_ids)))
