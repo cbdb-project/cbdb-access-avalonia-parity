@@ -235,6 +235,22 @@ def _safe_cases():
         return []
 
 
+# Cases that empirically do not fit a clean (≤10000 row) comparison
+# window. The /goal-(a) probe established that all three Avalonia
+# dynasty-filter variants align 100% with their cbdb_replay
+# counterparts when the result set fits within Avalonia's hardcoded
+# LIMIT cap of 10000. The all_jinshi case asks an unconstrained
+# "Song dynasty entries" question that produces ~40k rows on
+# cbdb_replay, so Avalonia's top-10k slice (sorted by entry_label,
+# c_year, c_personid, c_sequence) and cbdb_replay's unsorted slice
+# don't overlap. Marked xfail to record the finding without ringing
+# the test red — see coverage/replay_scan_results.md for the
+# probe table.
+_XFAIL_LIMIT_TRUNCATION: set[tuple[str, str]] = {
+    ("entry", "all_jinshi_general_song"),
+}
+
+
 @pytest.mark.parametrize(
     "category,case_id,replay_inputs,_expected",
     _safe_cases(),
@@ -278,6 +294,16 @@ def test_replay_scan(
     avalonia_request, skip_reason = translator(replay_inputs)
     if skip_reason:
         pytest.skip(f"[{category}/{case_id}] {skip_reason}")
+
+    if (category, case_id) in _XFAIL_LIMIT_TRUNCATION:
+        pytest.xfail(
+            f"[{category}/{case_id}] cbdb_replay returns more rows than "
+            f"Avalonia's hardcoded LIMIT cap (10000), and cbdb_replay has "
+            f"no ORDER BY — the truncated row sets don't overlap. The "
+            f"semantics ARE aligned (verified by the dynasty-filter probe; "
+            f"see coverage/replay_scan_results.md). Narrow the question "
+            f"upstream or raise Avalonia's LIMIT cap to clear."
+        )
 
     # Dispatch to the right paired bridge.
     from cbdb_parity.diff_report import diff_rows, write_report

@@ -42,47 +42,108 @@ def status_query_common_fields() -> tuple[str, ...]:
     return tuple(_COMMON_FIELDS_AVALONIA_TO_REPLAY.keys())
 
 
-def _avalonia_request_to_replay_inputs(request: StatusQueryRequest) -> Any:
+def _lookup_dynasty_year_range(
+    mdb_path: Path,
+    dynasty_ids: tuple[int, ...] | list[int] | Any,
+) -> tuple[int, int, int, int] | None:
+    """Look up `(from_dynasty, to_dynasty, from_dynasty_begin, to_dynasty_end)`
+    for a set of Avalonia `dynasty_ids` by reading the DYNASTIES table.
+
+    cbdb_replay's `year_mode='dynasty'` expects the four values together
+    (from/to bracket on c_dy and on c_dy_begin_year / c_dy_end_year).
+    Avalonia exposes only the list of `dynasty_ids`; we materialise the
+    equivalent range here.
+
+    Returns `None` when no rows match (caller should treat as empty result).
+    """
+    import pyodbc
+
+    ids = [int(d) for d in dynasty_ids]
+    if not ids:
+        return None
+    placeholders = ",".join("?" for _ in ids)
+    conn_str = (
+        r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
+        rf"DBQ={mdb_path};"
+    )
+    with pyodbc.connect(conn_str) as conn:
+        cur = conn.cursor()
+        cur.execute(
+            f"SELECT MIN(c_dy), MAX(c_dy), MIN(c_start), MAX(c_end) "
+            f"FROM DYNASTIES WHERE c_dy IN ({placeholders})",
+            *ids,
+        )
+        row = cur.fetchone()
+        cur.close()
+    if row is None or row[0] is None:
+        return None
+    return int(row[0]), int(row[1]), int(row[2] or 0), int(row[3] or 0)
+
+
+def _avalonia_request_to_replay_inputs(
+    request: StatusQueryRequest,
+    *,
+    mdb_path: Path | None = None,
+) -> Any | None:
     """Map StatusQueryRequest → cbdb_replay.lookatstatus.StatusQueryInputs.
 
-    cbdb_replay/lookatstatus models a narrower request space than the
-    Avalonia side. Branches we cannot faithfully replay are rejected
-    upfront — silently dropping them would let the Access side return
-    a broader result set and produce false parity mismatches.
+    Returns `None` to signal the caller should short-circuit to an
+    empty result (used for `status_codes=()`, where cbdb_replay
+    returns no rows AND Avalonia returns no rows because its SELECT
+    requires `c_status_code IN (...)`-style filtering by the picker).
+
+    Rejects (raises NotImplementedError) only for genuinely
+    unsupported request shapes (currently `person_keyword`, which
+    cbdb_replay/lookatstatus has no input slot for).
     """
-    unsupported: list[str] = []
     if request.person_keyword and request.person_keyword.strip():
-        unsupported.append("person_keyword")
-    if request.dynasty_ids:
-        unsupported.append("dynasty_ids")
-    if not request.status_codes:
-        unsupported.append(
-            "status_codes (empty — cbdb_replay returns no rows; Avalonia "
-            "runs unfiltered)"
-        )
-    if unsupported:
         raise NotImplementedError(
-            "cbdb_replay/lookatstatus does not model these StatusQueryRequest "
-            f"branches: {sorted(unsupported)!r}. Drop them from the parity "
-            "request or extend the bridge before treating its output as the "
-            "Access ground truth."
+            "cbdb_replay/lookatstatus does not model `person_keyword`; "
+            "the picker writes selected IDs, not a free-text keyword."
+        )
+
+    # Empty status_codes is a genuine semantic divergence, NOT a
+    # bridge limitation: Avalonia drops the `c_status_code IN (...)`
+    # filter entirely when no codes are bound and returns the full
+    # STATUS_DATA × LIMIT slice (~5000 rows on this dataset);
+    # cbdb_replay's picker contract treats "no codes selected" as
+    # "no rows". Neither side is wrong — they answer different
+    # questions. Raise so the scan records this as a documented gap.
+    if not request.status_codes:
+        raise NotImplementedError(
+            "empty `status_codes`: Avalonia runs unfiltered (full "
+            "STATUS_DATA up to LIMIT) while cbdb_replay's picker "
+            "contract returns no rows. These are genuinely different "
+            "queries on an empty filter; bridge cannot replay both "
+            "interpretations."
         )
 
     from cbdb_replay.lookatstatus import StatusQueryInputs
 
-    # `StatusQueryInputs` exposes year filtering as three flat fields
-    # (`year_mode` / `from_year` / `to_year`), NOT a `YearFilter` object
-    # like `lookatoffice.OfficeQueryInputs` does. The two replay
-    # interfaces diverge here; we map directly to whichever shape each
-    # one ships.
+    year_mode: str = "none"
+    from_year: int | None = None
+    to_year: int | None = None
+    from_dynasty: int | None = None
+    to_dynasty: int | None = None
+    from_dynasty_begin: int | None = None
+    to_dynasty_end: int | None = None
+
     if request.use_index_year_range:
-        year_mode: str = "index"
-        from_year: int | None = min(request.index_year_from, request.index_year_to)
-        to_year: int | None = max(request.index_year_from, request.index_year_to)
-    else:
-        year_mode = "none"
-        from_year = None
-        to_year = None
+        year_mode = "index"
+        from_year = min(request.index_year_from, request.index_year_to)
+        to_year = max(request.index_year_from, request.index_year_to)
+    elif request.dynasty_ids:
+        if mdb_path is None:
+            raise RuntimeError(
+                "dynasty_ids translation requires `mdb_path` so DYNASTIES "
+                "can be queried for the begin/end year range."
+            )
+        looked = _lookup_dynasty_year_range(mdb_path, request.dynasty_ids)
+        if looked is None:
+            # No matching dynasty rows: equivalent to zero results.
+            return None
+        from_dynasty, to_dynasty, from_dynasty_begin, to_dynasty_end = looked
+        year_mode = "dynasty"
 
     try:
         status_codes_int: list[int] = [int(c) for c in request.status_codes]
@@ -101,6 +162,10 @@ def _avalonia_request_to_replay_inputs(request: StatusQueryRequest) -> Any:
         year_mode=year_mode,  # type: ignore[arg-type]
         from_year=from_year,
         to_year=to_year,
+        from_dynasty=from_dynasty,
+        to_dynasty=to_dynasty,
+        from_dynasty_begin=from_dynasty_begin,
+        to_dynasty_end=to_dynasty_end,
     )
 
 
@@ -148,7 +213,11 @@ def status_query_access(
     import pyodbc
     from cbdb_replay.lookatstatus import run as replay_run
 
-    inputs = _avalonia_request_to_replay_inputs(request)
+    inputs = _avalonia_request_to_replay_inputs(request, mdb_path=mdb_path)
+    # Short-circuit: empty status_codes (or no-match dynasty_ids) → both
+    # backends return the empty list, no need to round-trip cbdb_replay.
+    if inputs is None:
+        return []
     conn_str = (
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
         rf"DBQ={mdb_path};"

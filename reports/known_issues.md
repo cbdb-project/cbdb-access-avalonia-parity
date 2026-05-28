@@ -145,35 +145,56 @@ The bottom of each entry adds:
 - **Suppress until**: Avalonia adds a demographic-aggregation
   service or method.
 
-### entry_all_jinshi_general_song — dynasty filter semantic divergence
+### entry_all_jinshi_general_song — LIMIT-cap truncation + no ORDER BY (NOT semantic divergence)
 
-- **First observed**: 2026-05-28 on Datadump SHA `ed294faed44b`, surfaced by
-  `tests/test_phase4_replay_scan.py::test_replay_scan[entry-all_jinshi_general_song]`.
-- **Side**: both (different question, same name)
-- **Class**: shape-mismatch (query semantics)
+- **First observed**: 2026-05-28 on Datadump SHA `ed294faed44b`,
+  surfaced by `tests/test_phase4_replay_scan.py`.
+- **Side**: both (test-design artifact)
+- **Class**: harness gap (test-input too broad for the row cap)
 - **Description**: For "all entries in Song dynasty" with no other
-  filters, Avalonia returns 4919 rows while cbdb_replay returns 4993,
-  overlapping on only 144 rows. Sampling the only-in-X buckets shows
-  the two backends are matching **different sets of people**:
-  Avalonia filters `BIOG_MAIN.c_dy IN (dynasty_ids)` — i.e. "entries
-  of people whose dynasty IS Song"; cbdb_replay's dynasty mode
-  filters by the 960-1279 year range against an entry/index year
-  field — i.e. "entries that happened during Song years". A person
-  whose c_dy is Tang but who has an entry in 1000 appears on one
-  side only, and vice versa.
-- **Root cause**: same human-language label ("dynasty filter") covers
-  two genuinely different SQL predicates. Neither side is wrong;
-  they answer different questions.
-- **Suppress rationale**: this is not a bug to fix on either side —
-  it's a semantic mismatch the parity harness was designed to
-  surface. Resolution requires a product-level decision on which
-  semantics "dynasty filter" should mean, then aligning both backends
-  on that. Until then, the scan keeps the case as a documented red
-  marker so the divergence stays visible.
-- **Suppress until**: a product-level alignment lands on either side
-  (or the scan switches this case to a narrower question both sides
-  can agree on, e.g. dropping dynasty mode and using explicit
-  `c_year` ranges).
+  filters, the first scan run reported 4919 / 4993 rows on each
+  side with only 144 matches. **Initial diagnosis (semantic
+  divergence) was wrong** — see "Empirical resolution" below.
+- **Empirical resolution** (2026-05-28 probe at limit=10000): three
+  Avalonia variants were compared against three cbdb_replay modes:
+
+  | Avalonia variant            | rep:dynasty | rep:entry-960-1279 | rep:index-960-1279 |
+  |---|---|---|---|
+  | `A_dynasty_ids=(15,)`       | **9871/9871 (100%)** | 6483 | 3952 |
+  | `B_use_entry_year_range`    | 9812 | **9933/9933 (100%)** | 4211 |
+  | `C_use_index_year_range`    | 9268 | 6309 | **9802/9802 (100%)** |
+
+  Each Avalonia variant aligns 100% with its matching cbdb_replay
+  mode (all rows present on the Avalonia side appear in the
+  corresponding cbdb_replay set). The original test failure has
+  TWO compounding causes, neither of which is a semantic mismatch:
+
+  1. **Avalonia LIMIT cap**: `SqliteEntryQueryService.cs:329` clamps
+     `request.Limit` to `[1, 10000]`. cbdb_replay's
+     `year_mode='dynasty'` for Song returns ~40 621 unique
+     `(person_id, sequence)` rows — Avalonia can never return more
+     than 10000 of them.
+  2. **cbdb_replay has no ORDER BY**: see `lookatentry.py` —
+     `grep ORDER` finds nothing. Pandas reads rows in whatever
+     physical order Access ODBC delivers them, which is index /
+     insertion order. Avalonia's `ORDER BY entry_label, c_year,
+     c_personid, c_sequence` produces a different top-10000 slice.
+
+  At limit=5000 (the test's value), the two top-5000 slices share
+  ZERO `person_id` overlap — they're disjoint slices of the same
+  ~40k-row superset.
+- **Root cause**: the test asks a question whose true result set
+  exceeds Avalonia's hardcoded LIMIT cap. The semantics are correct
+  on both sides; the comparison window just isn't wide enough.
+- **Suppress rationale**: this is now `xfail` in the scan because
+  the question itself is broader than the harness can faithfully
+  compare. Tagged xfail (not skip) so any change that closes the
+  gap surfaces as XPASS.
+- **Suppress until**: one of (a) the upstream cbdb-user-mdb-tests
+  case narrows to a subset that fits within 10000 rows
+  (e.g. `entry_codes=[36]` jinshi-only); (b) Avalonia raises the
+  LIMIT cap; (c) cbdb_replay adds an ORDER BY so its top-N slice
+  becomes deterministic and alignable.
 - **Report**: `reports/replay_scan/entry__all_jinshi_general_song/`.
 
 ### avalonia_gap — Texts / Networks / AssociationPairs / Place
