@@ -102,21 +102,13 @@ def _avalonia_request_to_replay_inputs(
             "the picker writes selected IDs, not a free-text keyword."
         )
 
-    # Empty status_codes is a genuine semantic divergence, NOT a
-    # bridge limitation: Avalonia drops the `c_status_code IN (...)`
-    # filter entirely when no codes are bound and returns the full
-    # STATUS_DATA × LIMIT slice (~5000 rows on this dataset);
-    # cbdb_replay's picker contract treats "no codes selected" as
-    # "no rows". Neither side is wrong — they answer different
-    # questions. Raise so the scan records this as a documented gap.
+    # Empty status_codes: both sides agree on empty results after
+    # the upstream Avalonia commit added the picker-contract
+    # short-circuit (SqliteStatusQueryService.QueryAsync now early-
+    # returns Array.Empty<…> when StatusCodes.Count == 0, matching
+    # cbdb_replay's behavior). Signal short-circuit to the caller.
     if not request.status_codes:
-        raise NotImplementedError(
-            "empty `status_codes`: Avalonia runs unfiltered (full "
-            "STATUS_DATA up to LIMIT) while cbdb_replay's picker "
-            "contract returns no rows. These are genuinely different "
-            "queries on an empty filter; bridge cannot replay both "
-            "interpretations."
-        )
+        return None
 
     from cbdb_replay.lookatstatus import StatusQueryInputs
 

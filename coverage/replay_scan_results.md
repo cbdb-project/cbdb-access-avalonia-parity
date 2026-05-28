@@ -10,22 +10,26 @@ Last run: **2026-05-28**, Datadump SHA `ed294faed44b…`.
 
 | # | Category | Case ID | Verdict | Notes |
 |---|---|---|---|---|
-| 1 | entry | `kaifeng_yin_general_900_1100_indexyears` | ⏭️ skip | Avalonia gap: no `addr_field='person'` analogue in `EntryQueryRequest`. |
-| 2 | entry | `kaifeng_yin_general_900_1100_entryyears`  | ⏭️ skip | Same Avalonia gap. |
-| 3 | entry | `all_jinshi_general_song`                  | ⚠️ xfail | LIMIT-cap truncation + cbdb_replay has no ORDER BY (~40k row superset, top-10k slices disjoint). Semantics ARE aligned — see dynasty probe below. Logged as `entry_all_jinshi_general_song` in known_issues.md. |
-| 4 | entry | `kaifeng_anyentry_900_1100_indexyears`     | ⏭️ skip | Avalonia gap: `addr_field='person'`. |
+| 1 | entry | `kaifeng_yin_general_900_1100_indexyears` | ✅ pass | **Newly passing** after upstream AddrField feature + parity-side case-insensitive match. |
+| 2 | entry | `kaifeng_yin_general_900_1100_entryyears`  | ✅ pass | **Newly passing** (same fix). |
+| 3 | entry | `all_jinshi_general_song`                  | ✅ pass | **Newly passing** after LIMIT cap raised from 10_000 → 100_000 upstream. 40_621 / 40_621 / 40_621 matching rows. |
+| 4 | entry | `kaifeng_anyentry_900_1100_indexyears`     | ✅ pass | **Newly passing** (AddrField fix). |
 | 5 | entry | `empty_inputs`                              | ✅ pass | Both sides correctly return empty for empty input. |
-| 6 | status | `empty_codes`                              | ⏭️ skip | Genuine semantic divergence on the empty-input case: Avalonia drops the IN-filter and runs unfiltered (~5000 rows); cbdb_replay's picker contract returns empty. Documented in `access_status_query._avalonia_request_to_replay_inputs`. |
-| 7 | status | `basic_status40_song`                       | ✅ pass | **Newly passing after bridge extension** (dynasty_ids → DYNASTIES year-range lookup → cbdb_replay year_mode=dynasty). |
+| 6 | status | `empty_codes`                              | ✅ pass | Both sides return empty after the upstream Avalonia picker-contract short-circuit (`SqliteStatusQueryService.QueryAsync` early-returns when `StatusCodes.Count == 0`). |
+| 7 | status | `basic_status40_song`                       | ✅ pass | 12_181 / 12_181 matching after LIMIT cap raise + dynasty bridge extension. |
 | 8 | status | `status40_kaifeng_900_1100`                | ✅ pass | Index-year + address filter. |
-| 9 | office | `empty_codes`                              | ⏭️ skip | Avalonia upstream bug: `pto.c_appt_type_code`. |
-| 10 | office | `office1_song`                             | ⏭️ skip | Same Avalonia upstream bug. |
+| 9 | office | `empty_codes`                              | ✅ pass | Same picker-contract short-circuit on the Avalonia side. |
+| 10 | office | `office1_song`                             | ✅ pass | **Newly passing** after upstream c_appt_type_code fix + office bridge dynasty extension. |
 
 ## Tally
 
-- **Passed**: 3/10
-- **Skipped**: 6/10 (documented gaps)
-- **xfail**: 1/10 (`entry/all_jinshi_general_song` — test input too broad for Avalonia's 10000-row LIMIT cap)
+- **Passed**: 10/10 ✅
+- **Skipped**: 0/10
+- **xfail**: 0/10
+
+Every cbdb-user-mdb-tests lookat input that targets an Avalonia-
+implemented category now produces byte-identical row sets on both
+backends.
 
 ## Dynasty-filter probe (2026-05-28)
 

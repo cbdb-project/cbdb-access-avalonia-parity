@@ -120,9 +120,10 @@ def _avalonia_request_to_replay_inputs(
         unsupported.append("include_subordinate_person_units")
     if request.include_subordinate_office_units and request.office_place_ids:
         unsupported.append("include_subordinate_office_units")
-    if not request.office_codes:
-        unsupported.append("office_codes (empty — cbdb_replay returns no rows; "
-                          "Avalonia runs unfiltered)")
+    # Empty office_codes: both sides now agree on empty after the
+    # upstream Avalonia picker-contract short-circuit (see
+    # SqliteOfficeQueryService.QueryAsync). No need to flag it
+    # as unsupported.
     # Multi-dynasty rejection (same rationale as access_status_query /
     # access_query: cbdb_replay's dynasty mode is a contiguous from/to
     # range, not an exact set — a non-singleton selection would

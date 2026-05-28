@@ -369,6 +369,11 @@ def office_query(
     `_OFFICE_RECORD_FIELDS`). The row order matches
     `OfficeQueryResult.Records` because we issue the same ORDER BY.
     """
+    # Picker-contract short-circuit (mirrors the upstream C# guard at
+    # SqliteOfficeQueryService.QueryAsync): empty office_codes ⇒ no
+    # rows.
+    if not request.office_codes:
+        return []
     cs_path = avalonia_data_dir / "SqliteOfficeQueryService.cs"
     template = _load_query_async_sql(cs_path)
     sql, params = _build_office_query_sql(template, request)
