@@ -128,20 +128,14 @@ def _avalonia_request_to_replay_inputs(
         from_year = min(request.index_year_from, request.index_year_to)
         to_year = max(request.index_year_from, request.index_year_to)
     elif request.dynasty_ids:
-        # See access_status_query for the multi-dynasty rationale:
-        # cbdb_replay's dynasty mode is a contiguous range, not an
-        # exact set; collapsing a non-singleton selection would
-        # silently include intermediate dynasties.
-        if len(request.dynasty_ids) > 1:
-            raise NotImplementedError(
-                f"dynasty_ids={tuple(request.dynasty_ids)!r}: "
-                f"cbdb_replay/lookatentry only models a contiguous "
-                f"from/to dynasty range, not an exact set. Multi-"
-                f"dynasty selections with gaps would silently broaden "
-                f"the Access-side filter to include intermediate "
-                f"dynasties. Restrict the parity input to a single "
-                f"dynasty until the bridge supports per-id replay."
-            )
+        # Multi-dynasty requests are handled by entry_query_access via
+        # per-id fan-out (each dy_id translated separately, results
+        # unioned). This translator only handles the single-dy case.
+        assert len(request.dynasty_ids) == 1, (
+            f"_avalonia_request_to_replay_inputs expects ≤1 dynasty_id; "
+            f"caller must fan out multi-dy requests. Got "
+            f"{tuple(request.dynasty_ids)!r}."
+        )
         if mdb_path is None:
             raise RuntimeError(
                 "dynasty_ids translation requires `mdb_path` so "
@@ -244,7 +238,52 @@ def entry_query_access(
     access_tests_repo: Path,
 ) -> list[dict[str, Any]]:
     """Run the Access-side equivalent of EntryQueryRequest against
-    `mdb_path` (which MUST be a Phase 1.3b-generated cbdb_data.mdb).
+    `mdb_path`. Multi-dynasty requests fan out per-id (each call
+    handles one dynasty) and the rows are unioned, deduped by
+    (person_id, sequence), sorted, and limit-clamped.
+    """
+    if len(request.dynasty_ids) > 1:
+        from dataclasses import replace
+        combined: list[dict[str, Any]] = []
+        seen: set[tuple[Any, Any]] = set()
+        for dy in request.dynasty_ids:
+            sub = replace(request, dynasty_ids=(dy,))
+            for row in _entry_query_access_single(
+                mdb_path, sub, access_tests_repo=access_tests_repo
+            ):
+                key = (row.get("person_id"), row.get("sequence"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                combined.append(row)
+        # Mirror Avalonia's final clamp: the post-merged set is
+        # already sorted within each per-dy slice but the global
+        # order needs a final pass. Use the same key the single-dy
+        # path uses (entry_label is not available here without re-
+        # fetching ENTRY_CODES; sort by year/person_id/sequence as a
+        # stable proxy — the single-dy ORDER BY contract held within
+        # each input partition, and the cross-partition order is
+        # constrained only by the same total-row LIMIT clamp on
+        # both sides).
+        combined.sort(key=lambda r: (
+            r.get("entry_year") if r.get("entry_year") is not None else -10**9,
+            r.get("person_id") if r.get("person_id") is not None else -1,
+            r.get("sequence") if r.get("sequence") is not None else -1,
+        ))
+        return combined[: max(1, min(request.limit, 100000))]
+    return _entry_query_access_single(
+        mdb_path, request, access_tests_repo=access_tests_repo
+    )
+
+
+def _entry_query_access_single(
+    mdb_path: Path,
+    request: EntryQueryRequest,
+    *,
+    access_tests_repo: Path,
+) -> list[dict[str, Any]]:
+    """Single-dynasty (or no-dynasty) Access-side replay. Caller in
+    `entry_query_access` handles multi-dy fan-out.
 
     Returns rows in the common-fields cross-section, keyed by Avalonia
     field names, so they can be diffed directly against

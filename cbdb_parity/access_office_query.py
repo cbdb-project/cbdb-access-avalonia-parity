@@ -124,14 +124,15 @@ def _avalonia_request_to_replay_inputs(
     # upstream Avalonia picker-contract short-circuit (see
     # SqliteOfficeQueryService.QueryAsync). No need to flag it
     # as unsupported.
-    # Multi-dynasty rejection (same rationale as access_status_query /
-    # access_query: cbdb_replay's dynasty mode is a contiguous from/to
-    # range, not an exact set — a non-singleton selection would
-    # silently include intermediate dynasties).
+    # Multi-dynasty fan-out is handled in office_query_access; this
+    # translator only sees the single-dy case.
     if request.dynasty_ids and len(request.dynasty_ids) > 1:
-        unsupported.append(
-            f"dynasty_ids={tuple(request.dynasty_ids)!r} (>1 id — "
-            f"cbdb_replay/lookatoffice only models a contiguous range)"
+        # This is a programming error — caller should fan out before
+        # calling the translator.
+        raise AssertionError(
+            f"_avalonia_request_to_replay_inputs expects ≤1 dynasty_id; "
+            f"caller must fan out multi-dy requests. Got "
+            f"{tuple(request.dynasty_ids)!r}."
         )
     if unsupported:
         raise NotImplementedError(
@@ -241,6 +242,43 @@ def office_query_access(
     access_tests_repo: Path,
 ) -> list[dict[str, Any]]:
     """Run the Access-side equivalent of OfficeQueryRequest.
+
+    Multi-dynasty requests fan out per-id (cbdb_replay's dynasty mode
+    only models a contiguous from/to range). Single-dy / no-dy flow
+    through `_office_query_access_single`.
+    """
+    if len(request.dynasty_ids) > 1:
+        from dataclasses import replace
+        combined: list[dict[str, Any]] = []
+        seen: set[tuple[Any, ...]] = set()
+        for dy in request.dynasty_ids:
+            sub = replace(request, dynasty_ids=(dy,))
+            for row in _office_query_access_single(
+                mdb_path, sub, access_tests_repo=access_tests_repo
+            ):
+                key = (
+                    row.get("person_id"),
+                    row.get("posting_id"),
+                    row.get("office_id"),
+                    row.get("office_addr_id"),
+                )
+                if key in seen:
+                    continue
+                seen.add(key)
+                combined.append(row)
+        return combined[: max(1, min(request.limit, 100000))]
+    return _office_query_access_single(
+        mdb_path, request, access_tests_repo=access_tests_repo
+    )
+
+
+def _office_query_access_single(
+    mdb_path: Path,
+    request: OfficeQueryRequest,
+    *,
+    access_tests_repo: Path,
+) -> list[dict[str, Any]]:
+    """Single-dynasty (or no-dynasty) Access-side replay.
 
     Returns rows in the common-fields cross-section, keyed by Avalonia
     field names so they can be diffed directly against

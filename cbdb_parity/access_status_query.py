@@ -125,28 +125,13 @@ def _avalonia_request_to_replay_inputs(
         from_year = min(request.index_year_from, request.index_year_to)
         to_year = max(request.index_year_from, request.index_year_to)
     elif request.dynasty_ids:
-        # cbdb_replay.lookatstatus models `year_mode='dynasty'` as a
-        # CONTIGUOUS `from_dynasty..to_dynasty` range, not an exact set
-        # (StatusQueryInputs has no `dynasty_ids: list[int]` slot).
-        # Avalonia, by contrast, applies `b.c_dy IN (dynasty_ids)`
-        # exactly — see `SqliteStatusQueryService.cs` line ~277. For a
-        # non-singleton selection with gaps (e.g. (6, 15) = Tang +
-        # Song, skipping dynasties 7-14), collapsing to MIN/MAX would
-        # widen the Access-side ground truth to include the dynasties
-        # in between — silently wrong, not surfaced as a diff. Reject
-        # multi-dynasty here; single-dynasty (the only case we have
-        # in the user-mdb-tests scan today) is faithful because
-        # from_dynasty == to_dynasty.
-        if len(request.dynasty_ids) > 1:
-            raise NotImplementedError(
-                f"dynasty_ids={tuple(request.dynasty_ids)!r}: cbdb_replay/"
-                f"lookatstatus only models a contiguous from/to dynasty "
-                f"range, not an exact set. Multi-dynasty selections with "
-                f"gaps would silently broaden the Access-side filter to "
-                f"include intermediate dynasties. Extend the bridge with "
-                f"per-id year-range expansion or restrict the parity "
-                f"input to a single dynasty."
-            )
+        # Multi-dynasty fan-out is handled in status_query_access;
+        # this translator only sees the single-dy case.
+        assert len(request.dynasty_ids) == 1, (
+            f"_avalonia_request_to_replay_inputs expects ≤1 dynasty_id; "
+            f"caller must fan out multi-dy requests. Got "
+            f"{tuple(request.dynasty_ids)!r}."
+        )
         if mdb_path is None:
             raise RuntimeError(
                 "dynasty_ids translation requires `mdb_path` so DYNASTIES "
@@ -215,14 +200,37 @@ def status_query_access(
 ) -> list[dict[str, Any]]:
     """Run the Access-side equivalent of a StatusQueryRequest.
 
-    Ordering / limit: mirrors Avalonia's
-        ORDER BY status_label, b.c_personid, sd.c_sequence  LIMIT N
-    via a post-fetch STATUS_CODES label lookup. For a SINGLE-code
-    request `status_label` is constant and `(person_id, sequence)` is
-    a stable proper prefix; multi-code requests sort by
-    `(status_label, person_id, sequence)` after looking each row's
-    label up.
+    Multi-dynasty requests fan out per-id (cbdb_replay's dynasty mode
+    only models a contiguous from/to range); single-dy and no-dy
+    requests go through `_status_query_access_single`.
     """
+    if len(request.dynasty_ids) > 1:
+        from dataclasses import replace
+        combined: list[dict[str, Any]] = []
+        seen: set[tuple[Any, Any]] = set()
+        for dy in request.dynasty_ids:
+            sub = replace(request, dynasty_ids=(dy,))
+            for row in _status_query_access_single(
+                mdb_path, sub, access_tests_repo=access_tests_repo
+            ):
+                key = (row.get("person_id"), row.get("sequence"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                combined.append(row)
+        return combined[: max(1, min(request.limit, 100000))]
+    return _status_query_access_single(
+        mdb_path, request, access_tests_repo=access_tests_repo
+    )
+
+
+def _status_query_access_single(
+    mdb_path: Path,
+    request: StatusQueryRequest,
+    *,
+    access_tests_repo: Path,
+) -> list[dict[str, Any]]:
+    """Single-dynasty (or no-dynasty) Access-side replay."""
     _ensure_cbdb_replay_on_path(access_tests_repo)
     import pyodbc
     from cbdb_replay.lookatstatus import run as replay_run
