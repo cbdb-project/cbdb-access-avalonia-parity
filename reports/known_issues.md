@@ -243,33 +243,52 @@ the current parity-completion session; each service is documented
 below with the cbdb_replay SQL pattern that an Avalonia implementor
 could lift directly.
 
-**For implementors**: each `cbdb_replay/lookat*.py` already contains
-the production-validated SQL for these flows; an upstream Avalonia
-implementor only needs to:
+**For implementors**: each `cbdb_replay/lookat*.py` contains a
+**partial reference implementation** that an Avalonia author can use
+as a starting point — but with the major caveat that these replay
+modules each cover only the **simplest, smoke-test sub-branch** of
+the full Access form. The Access VBA forms support significantly
+more options than cbdb_replay currently models (e.g. multi-hop graph
+traversal, full demographic aggregation, secondary networks). An
+upstream Avalonia author should:
 
 1. Mirror the request shape as `Cbdb.App.Core/<X>QueryRequest.cs`
 2. Mirror each row as `Cbdb.App.Core/<X>QueryRecord.cs`
 3. Add `Cbdb.App.Core/I<X>QueryService.cs` (`Task<…QueryResult>
    QueryAsync(string sqlitePath, …QueryRequest request, …)`)
-4. Copy the cbdb_replay SQL into `Cbdb.App.Data/Sqlite<X>QueryService.cs`,
-   adapting `$param`-style placeholders and the LIMIT/ORDER BY
+4. Use the cbdb_replay SQL as a STARTING POINT; cross-check against
+   the Access VBA in `cbdb-user-mdb-tests/golden_helpers.py` and
+   the original Form_LookAt*.frm modules (where available) for the
+   full option matrix the form actually supports.
 5. Add the parity Python mirror + Access bridge by the same recipe
    the existing Entry/Status/Office bridges follow.
 
-**Per-feature pointers**:
+**Per-feature pointers** (each with its replay-side starting reference
+AND the scope cbdb_replay does NOT yet cover):
 
-- **Texts** (simplest): `cbdb_replay/lookattexts.py` line ~50-200.
-  Returns `(person, text, role)` triples filtered by `biblcat_codes`.
-  15-column SELECT × 3 INNER JOINs; ~150 SLOC to port end-to-end.
-- **Place**: `cbdb_replay/lookatplace.py`. People-by-index-addr query;
-  similar shape to entry's `addr_field='person'` branch.
-- **Networks**: `cbdb_replay/lookatnetworks.py`. Multi-hop graph
-  traversal (kinship + association edges) — non-trivial.
-- **AssociationPairs**: `cbdb_replay/lookatassociationpairs.py`. Path
-  queries over association graph.
-- **GroupData**: demographic stats (histograms, frequency tables).
-  Genuinely different from any existing Avalonia service shape; needs
-  product-level decision on whether to add to Avalonia.
+- **Texts** (simplest, most complete): `cbdb_replay/lookattexts.py`
+  line ~50-200. Returns `(person, text, role)` triples filtered by
+  `biblcat_codes`. 15-column SELECT × 3 INNER JOINs; ~150 SLOC to
+  port end-to-end. cbdb_replay coverage here is reasonably complete
+  vs Access.
+- **Place**: `cbdb_replay/lookatplace.py`. Starting point: only the
+  `source='individual'` mode is implemented. Access also supports
+  `source='all-belongings'` and other addr-source modes.
+- **Networks**: `cbdb_replay/lookatnetworks.py`. Starting point:
+  only 1-hop non-kin association edges. Access's `network_personal_
+  expansion` supports multi-hop traversal, kin+association mixed
+  edges, and depth-limited expansion — a substantial extension on
+  top of the replay's seed.
+- **AssociationPairs**: `cbdb_replay/lookatassociationpairs.py`.
+  Starting point: direct ASSOC edges only. Access's
+  `assocpairs_path_queries` supports path-style queries (A → B
+  via intermediate persons) which cbdb_replay does not yet model.
+- **GroupData**: `cbdb_replay/lookatgroupdata.py`. Starting point:
+  returns only the base imported-people list. Access's
+  `groupdata_demographic_stats` produces histograms / frequency
+  tables / cross-tabulations — genuinely a different shape from
+  any existing Avalonia service, and requires a product-level
+  decision on whether to add aggregation to Avalonia at all.
 
 (Historical Tier 1 "Avalonia gap" cross-reference preserved below.)
 
