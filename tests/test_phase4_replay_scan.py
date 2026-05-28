@@ -182,7 +182,10 @@ def _translate_entry_to_avalonia(replay_inputs: Any):
         entry_year_from=int(replay_inputs.from_year or 0) if use_entry else 0,
         entry_year_to=int(replay_inputs.to_year or 0) if use_entry else 0,
         dynasty_ids=dynasty_ids,
-        limit=5000,
+        # Big enough to contain "all Song entries" (~40k) and similar
+        # broad-question test cases; cbdb_replay has no LIMIT so we
+        # raise Avalonia's to match.
+        limit=100000,
     ), None)
 
 
@@ -203,7 +206,7 @@ def _translate_status_to_avalonia(replay_inputs: Any):
         index_year_from=int(replay_inputs.from_year or 0) if use_index else 0,
         index_year_to=int(replay_inputs.to_year or 0) if use_index else 0,
         dynasty_ids=dynasty_ids,
-        limit=5000,
+        limit=100000,
     ), None)
 
 
@@ -238,7 +241,7 @@ def _translate_office_to_avalonia(replay_inputs: Any):
         index_year_from=index_year_from,
         index_year_to=index_year_to,
         dynasty_ids=dynasty_ids,
-        limit=5000,
+        limit=100000,
     ), None)
 
 
@@ -260,20 +263,14 @@ def _safe_cases():
         return []
 
 
-# Cases that empirically do not fit a clean (≤10000 row) comparison
-# window. The /goal-(a) probe established that all three Avalonia
-# dynasty-filter variants align 100% with their cbdb_replay
-# counterparts when the result set fits within Avalonia's hardcoded
-# LIMIT cap of 10000. The all_jinshi case asks an unconstrained
-# "Song dynasty entries" question that produces ~40k rows on
-# cbdb_replay, so Avalonia's top-10k slice (sorted by entry_label,
-# c_year, c_personid, c_sequence) and cbdb_replay's unsorted slice
-# don't overlap. Marked xfail to record the finding without ringing
-# the test red — see coverage/replay_scan_results.md for the
-# probe table.
-_XFAIL_LIMIT_TRUNCATION: set[tuple[str, str]] = {
-    ("entry", "all_jinshi_general_song"),
-}
+# Previously this set contained `('entry', 'all_jinshi_general_song')`
+# because Avalonia's LIMIT cap was 10000 and cbdb_replay returned
+# ~40k rows for "all Song entries", making the truncated row sets
+# disjoint. The cap has since been raised to 100000 upstream (see
+# cbdb-desktop-app commit raising Math.Clamp from 1..10000 to
+# 1..100000 in the three Sqlite*QueryService classes), so the
+# full Song result set now fits and the case passes end-to-end.
+_XFAIL_LIMIT_TRUNCATION: set[tuple[str, str]] = set()
 
 
 @pytest.mark.parametrize(
@@ -357,6 +354,18 @@ def test_replay_scan(
             access_rows = status_query_access(mdb_path, avalonia_request, access_tests_repo=cfg.access_tests_repo)
             key_fields = ("person_id", "sequence")
             compare_fields = status_query_common_fields()
+        elif category == "office":
+            from cbdb_parity.avalonia_office_query import office_query
+            from cbdb_parity.access_office_query import (
+                office_query_access, office_query_common_fields,
+            )
+            avalonia_rows = office_query(sqlite_path, avalonia_request, avalonia_data_dir=avalonia_data)
+            access_rows = office_query_access(mdb_path, avalonia_request, access_tests_repo=cfg.access_tests_repo)
+            # Office shape: same diff key as Phase 3d (see
+            # test_phase3d_office_pair.py for rationale on the addr-id
+            # tail).
+            key_fields = ("person_id", "posting_id", "office_id", "office_addr_id")
+            compare_fields = office_query_common_fields()
         else:
             pytest.skip(f"unsupported category {category!r}")
     except NotImplementedError as exc:

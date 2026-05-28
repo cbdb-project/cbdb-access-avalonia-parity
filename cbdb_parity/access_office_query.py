@@ -74,7 +74,11 @@ def office_query_common_fields() -> tuple[str, ...]:
     return tuple(_COMMON_FIELDS_AVALONIA_TO_REPLAY.keys())
 
 
-def _avalonia_request_to_replay_inputs(request: OfficeQueryRequest) -> Any:
+def _avalonia_request_to_replay_inputs(
+    request: OfficeQueryRequest,
+    *,
+    mdb_path: Path | None = None,
+) -> Any:
     """Map `OfficeQueryRequest` → `cbdb_replay.lookatoffice.OfficeQueryInputs`.
 
     Year-filter selection mirrors `cbdb_parity.access_query`:
@@ -108,8 +112,6 @@ def _avalonia_request_to_replay_inputs(request: OfficeQueryRequest) -> Any:
     unsupported: list[str] = []
     if request.person_keyword and request.person_keyword.strip():
         unsupported.append("person_keyword")
-    if request.dynasty_ids:
-        unsupported.append("dynasty_ids")
     if request.person_place_ids:
         unsupported.append("person_place_ids")
     if request.office_place_ids:
@@ -121,6 +123,15 @@ def _avalonia_request_to_replay_inputs(request: OfficeQueryRequest) -> Any:
     if not request.office_codes:
         unsupported.append("office_codes (empty — cbdb_replay returns no rows; "
                           "Avalonia runs unfiltered)")
+    # Multi-dynasty rejection (same rationale as access_status_query /
+    # access_query: cbdb_replay's dynasty mode is a contiguous from/to
+    # range, not an exact set — a non-singleton selection would
+    # silently include intermediate dynasties).
+    if request.dynasty_ids and len(request.dynasty_ids) > 1:
+        unsupported.append(
+            f"dynasty_ids={tuple(request.dynasty_ids)!r} (>1 id — "
+            f"cbdb_replay/lookatoffice only models a contiguous range)"
+        )
     if unsupported:
         raise NotImplementedError(
             "cbdb_replay/lookatoffice does not model these OfficeQueryRequest "
@@ -138,6 +149,27 @@ def _avalonia_request_to_replay_inputs(request: OfficeQueryRequest) -> Any:
             from_year=min(request.index_year_from, request.index_year_to),
             to_year=max(request.index_year_from, request.index_year_to),
         )
+    elif request.dynasty_ids:
+        # Single-dynasty path: translate via DYNASTIES lookup.
+        from cbdb_parity.access_status_query import _lookup_dynasty_year_range
+        looked = _lookup_dynasty_year_range(mdb_path, request.dynasty_ids)
+        if looked is None:
+            # DYNASTIES row missing → both sides empty; signal by
+            # returning a YearFilter that matches no years. The
+            # cleanest signal is returning None from this whole
+            # function, but lookatoffice's interface expects a YearFilter;
+            # use an empty year window to force zero rows on the replay
+            # side, matching Avalonia (which filters b.c_dy IN (id) and
+            # gets zero rows when the id has no BIOG_MAIN matches).
+            year_filter = YearFilter(mode="dynasty", from_dynasty=-1, to_dynasty=-1,
+                                     from_dynasty_begin=1, to_dynasty_end=0)
+        else:
+            from_d, to_d, from_dy_begin, to_dy_end = looked
+            year_filter = YearFilter(
+                mode="dynasty",
+                from_dynasty=from_d, to_dynasty=to_d,
+                from_dynasty_begin=from_dy_begin, to_dynasty_end=to_dy_end,
+            )
     else:
         year_filter = YearFilter(mode="none")
 
@@ -232,7 +264,7 @@ def office_query_access(
     import pyodbc
     from cbdb_replay.lookatoffice import run as replay_run
 
-    inputs = _avalonia_request_to_replay_inputs(request)
+    inputs = _avalonia_request_to_replay_inputs(request, mdb_path=mdb_path)
     conn_str = (
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
         rf"DBQ={mdb_path};"
