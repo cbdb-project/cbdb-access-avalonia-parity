@@ -318,6 +318,17 @@ _VERBATIM_SKIP_LOWER: frozenset[str] = frozenset(
 # event-stream path (`build_mdb_from_events`) and as schema
 # documentation, but the MariaDB-source path uses pymysql's runtime
 # type discovery as its single source of truth.
+# Microsoft's documented Jet 2 GB temp-file leak workaround knob.
+# After N prepared-statement executes on the same pyodbc connection,
+# the Jet ODBC driver's per-connection JETxxxx.tmp file in %TEMP%
+# can grow until it hits the 2 GB hard ceiling (the actual mdb file
+# is unrelated). The workaround is to commit + close + reopen
+# pyodbc periodically. Sources cluster 10k-50k as the safe range;
+# we pick the looser end since reconnect overhead is non-zero (~50
+# ms) and each table commits at its boundary anyway.
+_PYODBC_RECONNECT_EVERY: int = 50_000
+
+
 _VERBATIM_FIELD_TYPE: dict[int, str] = {
     1: "INTEGER",       # TINY
     2: "INTEGER",       # SHORT
@@ -412,18 +423,41 @@ def build_mdb_from_mariadb(
 
     from cbdb_parity.mariadb import _connect
 
+    _PYODBC_CONN_STR = (
+        r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
+        rf"DBQ={output_path};"
+    )
+
     # Initialise locals BEFORE the try so the `finally` cleanup never
     # raises UnboundLocalError if pyodbc.connect() / cursor() itself
     # fails (e.g., driver missing, file locked); the real pyodbc.Error
     # surfaces cleanly to the caller.
     pyodbc_conn = None
     pyodbc_cur = None
-    pyodbc_conn = pyodbc.connect(
-        r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
-        rf"DBQ={output_path};"
-    )
-    pyodbc_cur = pyodbc_conn.cursor()
+
+    def _open_pyodbc() -> tuple[Any, Any]:
+        c = pyodbc.connect(_PYODBC_CONN_STR)
+        return c, c.cursor()
+
+    def _close_pyodbc(conn: Any, cur: Any) -> None:
+        if cur is not None:
+            try:
+                cur.close()
+            except Exception:
+                pass
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    pyodbc_conn, pyodbc_cur = _open_pyodbc()
     stats = BuildStats()
+    # Reconnect counter is global across all tables on this run.
+    # Per-table reset would defeat the workaround when many small
+    # tables collectively cross the per-connection 2 GB temp-file
+    # threshold without any one table hitting it (codex feedback).
+    rows_since_reconnect = [0]
 
     def _create_table_via_description(table: str) -> tuple[str, int]:
         """Open a SHORT pymysql connection (ipynb pattern), pull the
@@ -493,9 +527,24 @@ def build_mdb_from_mariadb(
             rows = _fetch_all_rows(raw_name)
             placeholders = ",".join(["?"] * col_count)
             insert_sql = f"INSERT INTO `{table}` VALUES ({placeholders});"
+            # Microsoft's documented Jet workaround for the 2 GB
+            # JETxxxx.tmp temp-file leak: after every N prepared-
+            # statement executes ON THE SAME CONNECTION, commit +
+            # close + reopen pyodbc. The Jet temp file accumulates
+            # handle state across repeated `crsr.execute(sql, params)`
+            # calls and hits its 2 GB ceiling otherwise (HY001 -1812).
+            # Counter is GLOBAL across tables — a build of many small
+            # tables would otherwise dodge the per-table reset and
+            # still cross the threshold mid-run.
             for row in rows:
                 normalised = tuple(_normalise_value_verbatim(v) for v in row)
                 pyodbc_cur.execute(insert_sql, normalised)
+                rows_since_reconnect[0] += 1
+                if rows_since_reconnect[0] >= _PYODBC_RECONNECT_EVERY:
+                    pyodbc_conn.commit()
+                    _close_pyodbc(pyodbc_conn, pyodbc_cur)
+                    pyodbc_conn, pyodbc_cur = _open_pyodbc()
+                    rows_since_reconnect[0] = 0
             pyodbc_conn.commit()
             stats.rows_inserted += len(rows)
     finally:
