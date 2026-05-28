@@ -261,7 +261,7 @@ def status_query_access(
 
     records = df.to_dict("records")
 
-    effective_limit = max(1, min(request.limit, 10000))
+    effective_limit = max(1, min(request.limit, 100000))
 
     def _sort_key(r: dict[str, Any]) -> tuple[Any, ...]:
         code = r.get("c_status_code")

@@ -343,7 +343,7 @@ def _build_office_query_sql(
             max(request.office_year_from, request.office_year_to)
             if request.use_office_year_range else None
         ),
-        "limit": max(1, min(request.limit, 10000)),
+        "limit": max(1, min(request.limit, 100000)),
     }
     for i, c in enumerate(request.office_codes):
         params[f"officeCode{i}"] = c

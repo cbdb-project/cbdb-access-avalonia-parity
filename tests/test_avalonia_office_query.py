@@ -54,7 +54,7 @@ def test_no_filters_substitutes_unfiltered_expressions() -> None:
     # Unfiltered office-place still distinguishes 'No office place' for
     # rows with no POSTED_TO_ADDR_DATA join row.
     assert "WHEN pta.c_addr_id IS NULL THEN 'No office place'" in sql
-    # Limit clamp matches Avalonia's [1, 10000].
+    # Limit clamp matches Avalonia's [1, 100000].
     assert params["limit"] == 200
     # No office_codes => no AND-IN appended.
     assert "pto.c_office_id IN" not in sql
@@ -126,13 +126,13 @@ def test_office_year_disabled_yields_null_endpoints() -> None:
     assert params["officeYearTo"] is None
 
 
-def test_limit_clamped_to_1_through_10000() -> None:
+def test_limit_clamped_to_1_through_100000() -> None:
     low = OfficeQueryRequest(limit=0)
-    high = OfficeQueryRequest(limit=99999)
+    high = OfficeQueryRequest(limit=999999)
     _, p_low = _build_office_query_sql(_MINIMAL_TEMPLATE, low)
     _, p_high = _build_office_query_sql(_MINIMAL_TEMPLATE, high)
     assert p_low["limit"] == 1
-    assert p_high["limit"] == 10000
+    assert p_high["limit"] == 100000
 
 
 def test_order_by_limit_appended() -> None:

@@ -288,8 +288,9 @@ def entry_query_access(
 
     records = df.to_dict("records")
 
-    # Avalonia clamps limit to [1, 10000]; mirror that contract.
-    effective_limit = max(1, min(request.limit, 10000))
+    # Avalonia clamps limit to [1, 100000] (bumped from 10000 in
+    # cbdb-desktop-app commit c94157d); mirror that contract.
+    effective_limit = max(1, min(request.limit, 100000))
 
     def _sort_key(r: dict[str, Any]) -> tuple[Any, ...]:
         code = r.get("c_entry_code")

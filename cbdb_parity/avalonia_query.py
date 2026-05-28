@@ -144,7 +144,7 @@ def _build_entry_query_sql(
         "useEntryYear": 1 if request.use_entry_year_range else 0,
         "entryYearFrom": min(request.entry_year_from, request.entry_year_to),
         "entryYearTo": max(request.entry_year_from, request.entry_year_to),
-        "limit": max(1, min(request.limit, 10000)),
+        "limit": max(1, min(request.limit, 100000)),
     }
     for i, c in enumerate(request.entry_codes):
         params[f"entryCode{i}"] = c

@@ -358,7 +358,7 @@ def office_query_access(
                 row["c_office_addr_id"] = addr
                 expanded.append(row)
 
-    effective_limit = max(1, min(request.limit, 10000))
+    effective_limit = max(1, min(request.limit, 100000))
 
     def _sort_key(r: dict[str, Any]) -> tuple[Any, ...]:
         code = r.get("c_office_id")

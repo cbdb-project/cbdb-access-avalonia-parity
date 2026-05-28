@@ -127,7 +127,7 @@ def _build_status_query_sql(
         "useIndexYear": 1 if request.use_index_year_range else 0,
         "indexYearFrom": min(request.index_year_from, request.index_year_to),
         "indexYearTo": max(request.index_year_from, request.index_year_to),
-        "limit": max(1, min(request.limit, 10000)),
+        "limit": max(1, min(request.limit, 100000)),
     }
     for i, c in enumerate(request.status_codes):
         params[f"statusCode{i}"] = c

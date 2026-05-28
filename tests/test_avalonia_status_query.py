@@ -62,11 +62,11 @@ def test_place_filter_with_subordinate_units() -> None:
     assert "ZZZ_BELONGS_TO bt WHERE bt.c_addr_id = b.c_index_addr_id" in sql
 
 
-def test_limit_clamped_to_1_through_10000() -> None:
+def test_limit_clamped_to_1_through_100000() -> None:
     _, p_low = _build_status_query_sql(_MINIMAL_TEMPLATE, StatusQueryRequest(limit=0))
-    _, p_high = _build_status_query_sql(_MINIMAL_TEMPLATE, StatusQueryRequest(limit=99999))
+    _, p_high = _build_status_query_sql(_MINIMAL_TEMPLATE, StatusQueryRequest(limit=999999))
     assert p_low["limit"] == 1
-    assert p_high["limit"] == 10000
+    assert p_high["limit"] == 100000
 
 
 def test_order_by_status_label_then_person_then_sequence() -> None:
