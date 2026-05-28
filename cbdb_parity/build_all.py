@@ -41,12 +41,42 @@ from cbdb_parity.datadump import (
 )
 from cbdb_parity.mariadb import MariaDbError, ensure_imported
 from cbdb_parity.mariadb_source import iter_events as mariadb_iter_events
-from cbdb_parity.mdb_builder import MdbBuilderError, build_mdb, build_mdb_from_events
+from cbdb_parity.mdb_builder import (
+    MdbBuilderError,
+    build_mdb,
+    build_mdb_from_mariadb,
+)
 from cbdb_parity.mysqldump import MysqlDumpError
 from cbdb_parity.refresh import RefreshError, RefreshResult, refresh_all
 from cbdb_parity.sqlite_builder import build_sqlite, build_sqlite_from_events
 
 _MANIFEST_NAME = "build_manifest.json"
+
+# Builder-version sentinels recorded in the manifest's product entries
+# so a stale cache built by an older code path doesn't get reused after
+# we change the builder's emit shape. Bump the version string when the
+# builder's CREATE TABLE / INSERT semantics change in a way that would
+# make the on-disk artifact non-equivalent to a fresh build.
+#
+# The mdb has TWO source paths (datadump vs mariadb) and each emits a
+# different schema (mariadb uses the verbatim ipynb 7-key type mapping
+# verified to survive Jet's 268 MB ceiling; datadump uses
+# mysql_type_to_access + TablesFields.xlsx overlay). Cache entries
+# from one path MUST NOT be silently reused by the other — we track
+# each separately and pick the expected version by `source` at
+# cache-check time.
+_MDB_BUILDER_VERSION_MARIADB = "1.6c-verbatim-ipynb-mariadb"
+_MDB_BUILDER_VERSION_DATADUMP = "1.3b-mysqldump-parser-overlay"
+_SQLITE_BUILDER_VERSION = "1.2-python-port"
+
+
+def _expected_mdb_version(cfg: Config) -> str:
+    """Which mdb builder will this run actually use? Tracks the
+    source-selection logic in `build_all`."""
+    return (
+        _MDB_BUILDER_VERSION_MARIADB if cfg.mariadb is not None
+        else _MDB_BUILDER_VERSION_DATADUMP
+    )
 
 
 def _workspace_root() -> Path:
@@ -159,10 +189,15 @@ def _try_use_cache(
     or `MARIADB_FORCE_REIMPORT=1` if only MariaDB is stale).
     """
     # (4) Schema repo updated → invalidate the cached mdb whose
-    # CREATE TABLE was derived from the OLD xlsx.
-    for r in refresh_results:
-        if r.key == "ACCESS_MYSQL_TRANSFER_REPO" and r.updated:
-            return None
+    # CREATE TABLE was derived from the OLD xlsx — but ONLY when
+    # the current run would actually consume the xlsx (the datadump-
+    # source mdb path uses it; the mariadb-source path ignores the
+    # overlay entirely, so refreshing accessAndMySQLTransfer doesn't
+    # change what that builder emits).
+    if cfg.mariadb is None:
+        for r in refresh_results:
+            if r.key == "ACCESS_MYSQL_TRANSFER_REPO" and r.updated:
+                return None
 
     manifest = _manifest_path()
     existing = _load_manifest(manifest)
@@ -179,10 +214,10 @@ def _try_use_cache(
         return None
 
     expected = {
-        "sqlite": cfg.build_output_dir / "cbdb.sqlite",
-        "mdb": cfg.build_output_dir / "cbdb_data.mdb",
+        "sqlite": (cfg.build_output_dir / "cbdb.sqlite", _SQLITE_BUILDER_VERSION),
+        "mdb":    (cfg.build_output_dir / "cbdb_data.mdb", _expected_mdb_version(cfg)),
     }
-    for key, target in expected.items():
+    for key, (target, required_version) in expected.items():
         entry = products.get(key)
         if not isinstance(entry, dict):
             return None
@@ -195,6 +230,12 @@ def _try_use_cache(
         except OSError:
             return None
         if not target.is_file() or target.stat().st_size == 0:
+            return None
+        # Builder-version gate at the top-tier cache too — without this,
+        # `_try_use_cache` would silently honour a stale pre-upgrade
+        # mdb entry before `_build_*_if_needed` ever runs its own
+        # version check.
+        if entry.get("builder_version") != required_version:
             return None
     return (
         f"[cache hit] using existing products at SHA {sha[:12]}; "
@@ -225,38 +266,48 @@ def _build_mdb_if_needed(
     builder errors (open_dump_stream, schema load) leave the flag
     untouched so cached artifacts are preserved.
     """
+    expected_version = _expected_mdb_version(cfg)
     cached_entry: dict[str, object] | None = None
     if _existing_product_sha_matches(existing, "mdb", sha):
         candidate = existing.get("products", {}).get("mdb")  # type: ignore[union-attr]
-        if isinstance(candidate, dict) and candidate.get("path") == str(out_path):
+        if (
+            isinstance(candidate, dict)
+            and candidate.get("path") == str(out_path)
+            # Builder-version gate. Two source paths exist (datadump /
+            # mariadb) and their emitted Access schemas differ
+            # materially, so we don't share cache entries across them.
+            # Reject any entry that doesn't match the EXACT version
+            # this run will produce.
+            and candidate.get("builder_version") == expected_version
+        ):
             cached_entry = candidate
     if not rebuild and cached_entry is not None and out_path.is_file():
         print(f"  [cached]   mdb     ({cached_entry.get('rows_inserted', 0):,} rows from prior build)")
         return cached_entry
 
-    # Load the Access schema overlay (TablesFields.xlsx) — same content
-    # the standalone cbdb-parity-build-mdb CLI uses.
-    xlsx_path = cfg.access_mysql_transfer_repo / "TablesFields.xlsx"
-    schema_overlay = load_access_schema(xlsx_path)
-
     t0 = time.time()
     print(f"  [building] mdb     -> {out_path}  (source={source})")
     if source == "mariadb":
         assert cfg.mariadb is not None, "_build_mdb_if_needed got source='mariadb' but cfg.mariadb is None"
-        # Lazy import + scoped pymysql connection so the Datadump path
-        # never imports pymysql or holds a MariaDB socket.
-        from cbdb_parity.mariadb import _connect
-        conn = _connect(cfg.mariadb, database=cfg.mariadb.database)
-        try:
-            stats = build_mdb_from_events(
-                mariadb_iter_events(conn, cfg.mariadb.database),
-                out_path,
-                access_schema=schema_overlay,
-                on_started=on_started,
-            )
-        finally:
-            conn.close()
+        # Use the verbatim ipynb pattern (Phase 1.6c+) — single
+        # persistent pyodbc conn, per-table SHOW-TABLES + SELECT *,
+        # cursor.description-driven types via the 9-key field_type
+        # dict. Empirically the only path that doesn't crash at Jet's
+        # 268 MB ceiling on the current CBDB data (see
+        # `mdb_builder.build_mdb_from_mariadb` docstring for the full
+        # rationale; the event-stream path is retained for the
+        # source='datadump' fallback below).
+        # We intentionally DON'T load TablesFields.xlsx for this path
+        # — the verbatim pattern ignores the overlay, and forcing the
+        # xlsx load here would gratuitously couple the mariadb path
+        # to an unrelated file's availability.
+        stats = build_mdb_from_mariadb(cfg, out_path, on_started=on_started)
     else:
+        # Datadump-direct fallback path: load the xlsx overlay (still
+        # consumed by `build_mdb_from_events` for column types and
+        # the per-table skip list).
+        xlsx_path = cfg.access_mysql_transfer_repo / "TablesFields.xlsx"
+        schema_overlay = load_access_schema(xlsx_path)
         with open_dump_stream(info) as stream:
             stats = build_mdb(
                 stream,
@@ -276,7 +327,18 @@ def _build_mdb_if_needed(
         "rows_inserted": stats.rows_inserted,
         "built_at": datetime.now(UTC).isoformat(),
         "elapsed_seconds": round(elapsed, 2),
+        "builder_version": expected_version,
     }
+
+
+def _sqlite_cache_hit(entry: object) -> bool:
+    """Same builder-version + path semantics as the mdb cache check.
+    Lifted out so `_build_sqlite_if_needed` and (in future) other
+    callers stay in sync."""
+    return (
+        isinstance(entry, dict)
+        and entry.get("builder_version") == _SQLITE_BUILDER_VERSION
+    )
 
 
 def _build_sqlite_if_needed(
@@ -305,7 +367,11 @@ def _build_sqlite_if_needed(
     cached_entry: dict[str, object] | None = None
     if _existing_product_sha_matches(existing, "sqlite", sha):
         candidate = existing.get("products", {}).get("sqlite")  # type: ignore[union-attr]
-        if isinstance(candidate, dict) and candidate.get("path") == str(out_path):
+        if (
+            isinstance(candidate, dict)
+            and candidate.get("path") == str(out_path)
+            and _sqlite_cache_hit(candidate)
+        ):
             cached_entry = candidate
     if not rebuild and cached_entry is not None and out_path.is_file():
         print(f"  [cached]   sqlite  ({cached_entry.get('rows_inserted', 0):,} rows from prior build)")
@@ -340,6 +406,7 @@ def _build_sqlite_if_needed(
         "rows_inserted": stats.rows_inserted,
         "built_at": datetime.now(UTC).isoformat(),
         "elapsed_seconds": round(elapsed, 2),
+        "builder_version": _SQLITE_BUILDER_VERSION,
     }
 
 

@@ -310,6 +310,11 @@ def _write_manifest(
         "rows_inserted": stats.rows_inserted,
         "built_at": datetime.now(UTC).isoformat(),
         "elapsed_seconds": round(elapsed, 2),
+        # Stamped so build_all's cache check (which now gates on
+        # builder_version) reuses standalone-built sqlite without
+        # rebuilding. Must stay in sync with
+        # `cbdb_parity.build_all._SQLITE_BUILDER_VERSION`.
+        "builder_version": "1.2-python-port",
     }
     manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 

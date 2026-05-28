@@ -249,6 +249,263 @@ def _default_connect(path: Path) -> _Connection:
     return pyodbc.connect(conn_str)
 
 
+# ============================================================================
+# Phase 1.6 / verbatim-ipynb mdb builder (working path)
+# ============================================================================
+#
+# Empirical fact (commit 02246eb..c1ade80 history): every variant of the
+# event-stream builder we tried still crashed at the Jet 2 GB ceiling
+# around 268 MB written, while `scripts/run_ipynb_verbatim.py` — a
+# faithful port of `accessAndMySQLTransfer/mysql2access.ipynb` — runs
+# to completion at ~831 MB on disk on the same May-27 MariaDB cache.
+#
+# The remaining difference between the two was the SCHEMA derivation
+# path:
+#   - event-stream: information_schema.COLUMNS.COLUMN_TYPE strings →
+#     `mysql_type_to_access()` regex translation → CREATE TABLE
+#   - ipynb verbatim: `cursor.description[i][1]` pymysql type code →
+#     `field_type` dict (7 entries) → CREATE TABLE
+#
+# Different schemas produce different Jet page layouts; one survives,
+# the other doesn't. This function bolts the verbatim pattern onto
+# our Config / Phase-1.4 manifest plumbing so build_all can call it
+# as the production mdb path. `build_mdb_from_events` is retained for
+# the source='datadump' fallback and existing unit tests.
+
+# Tables to skip — combines the ipynb's SKIP_TABLES with our own
+# additions (notably `addresses`, which the production Access mdb's
+# `CopyTables` allowlist excludes).
+_VERBATIM_SKIP_LOWER: frozenset[str] = frozenset(
+    {s.lower() for s in _NOTEBOOK_SKIP_TABLES}
+    | {"cbdb__name_fts", "cbdb__trad_simp_map"}
+    # Phase 1.6 MariaDB cache provenance bookkeeping. Lives in the
+    # source DB but must NOT propagate into the generated mdb where
+    # downstream parity comparisons would otherwise see an extra
+    # table that isn't part of the Datadump.
+    | {"_cbdb_parity_provenance"}
+)
+
+# pymysql type code → Access ODBC type string, COPIED VERBATIM from
+# the proven `mysql2access.ipynb` `field_type` dict. The values
+# DELIBERATELY DIFFER from `mysql_type_to_access()` for two columns:
+#
+#   - pymysql SHORT (code 2) = MySQL smallint: ipynb → INTEGER,
+#     `mysql_type_to_access` → SMALLINT.
+#   - pymysql LONG (code 3) = MySQL int: ipynb → INTEGER,
+#     `mysql_type_to_access` → INTEGER (same).
+#
+# This means the MariaDB-source mdb path has DIFFERENT column types
+# from the datadump-source mdb path. We accept that divergence
+# because:
+#   (a) the ipynb mapping is the only one we have an empirical
+#       passing build for (831 MB on real May-27 data), whereas
+#       SMALLINT-emitting variants crashed at 268 MB;
+#   (b) Access INTEGER (32-bit) is a strict superset of SMALLINT
+#       (16-bit) — every smallint value fits in an integer, so any
+#       Phase 3 query that compares values is unaffected;
+#   (c) the schema convention exists to be queried, not introspected
+#       as metadata in the parity tests.
+#
+# Columns with a type code outside this dict raise KeyError → the
+# whole table gets skipped, matching the notebook's empirical
+# behaviour. Codes that show up on CBDB data tables we DO want
+# imported are all here; anything else is a Laravel/CBDB__ table we
+# already filter via `_VERBATIM_SKIP_LOWER`.
+#
+# `TablesFields.xlsx` overlay is ALSO intentionally NOT applied on
+# this path. Empirically the overlay's per-column type assignments
+# trigger Jet's 268 MB ceiling. The xlsx remains useful for the
+# event-stream path (`build_mdb_from_events`) and as schema
+# documentation, but the MariaDB-source path uses pymysql's runtime
+# type discovery as its single source of truth.
+_VERBATIM_FIELD_TYPE: dict[int, str] = {
+    1: "INTEGER",       # TINY
+    2: "INTEGER",       # SHORT
+    3: "INTEGER",       # LONG
+    5: "DOUBLE",        # DOUBLE
+    7: "TIMESTAMP",     # TIMESTAMP
+    10: "DATETIME",     # DATE (bare; Access stores as DATETIME)
+    11: "DATETIME",     # TIME (defensive; not seen on current CBDB
+                        #       schema but cheap to support)
+    12: "TIMESTAMP",    # DATETIME
+    # MySQL BIT → Access SMALLINT (NOT BIT). README §3 of
+    # accessAndMySQLTransfer documents that Access reads every BIT
+    # column as 1 (the boolean-true bug); SMALLINT keeps 0/1 values
+    # intact. The ipynb's literal `field_type[16]='BIT'` is the
+    # historical bug we don't carry forward.
+    16: "SMALLINT",     # BIT (coerced)
+    252: "LONGTEXT",    # BLOB (used for text/longtext)
+    253: "VARCHAR(255)",  # VAR_STRING (used for varchar)
+}
+
+
+def _normalise_value_verbatim(v: Any) -> Any:
+    """Per-cell normalisation for the verbatim MariaDB → mdb path.
+
+    Mirrors `_normalise_value()` in the event-stream path: handles
+    BIT-like bytes (b'\\x00'/b'\\x01') AND the two MySQL zero-date
+    sentinels (`'0000-00-00 00:00:00'` and bare `'0000-00-00'`) that
+    Access ODBC otherwise rejects with `Data type mismatch`. The
+    ipynb only handled the datetime sentinel; the bare-date sentinel
+    appears on DATE columns and would otherwise crash mid-table.
+    """
+    if v == b"\x00":
+        return 0
+    if v == b"\x01":
+        return 1
+    if v in {"0000-00-00 00:00:00", "0000-00-00"}:
+        return None
+    return v
+
+
+def build_mdb_from_mariadb(
+    cfg: Any,
+    output_path: Path,
+    *,
+    on_started: Callable[[], None] | None = None,
+) -> BuildStats:
+    """Build cbdb_data.mdb from MariaDB using the verbatim ipynb
+    pattern. Used by `build_all` for `source='mariadb'`.
+
+    Pulls table list from `SHOW TABLES`, then per table:
+      1. `SELECT * FROM <t> LIMIT 1` → use `cursor.description` to
+         build CREATE TABLE via the 9-key field_type dict (KeyError
+         skips the table, same as ipynb).
+      2. `SELECT * FROM <t>` → `fetchall()` (whole table into Python
+         memory at once; Jet INSERT is the slow loop so the brief
+         MariaDB-to-Python burst doesn't matter).
+      3. Row-by-row `cursor.execute("INSERT INTO `t` VALUES (?, ?,
+         ...)", row)`, no column list.
+      4. One `conn.commit()` per table.
+    All against ONE persistent pyodbc connection.
+
+    Output mdb is overwritten if it exists. `on_started` fires AFTER
+    the prior file is unlinked and we're about to lay down the fresh
+    mdb (same contract as `build_mdb_from_events`).
+    """
+    if cfg.mariadb is None:
+        raise MdbBuilderError(
+            "build_mdb_from_mariadb requires cfg.mariadb to be configured "
+            "(set the five required MARIADB_* keys in .env)."
+        )
+
+    if output_path.exists():
+        output_path.unlink()
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    if on_started is not None:
+        on_started()
+
+    # Bootstrap a fresh empty mdb via pypyodbc, identical to the
+    # event-stream path.
+    _default_create_db(output_path)
+
+    import pymysql  # lazy
+    import pyodbc  # lazy
+
+    from cbdb_parity.mariadb import _connect
+
+    # Initialise locals BEFORE the try so the `finally` cleanup never
+    # raises UnboundLocalError if pyodbc.connect() / cursor() itself
+    # fails (e.g., driver missing, file locked); the real pyodbc.Error
+    # surfaces cleanly to the caller.
+    pyodbc_conn = None
+    pyodbc_cur = None
+    pyodbc_conn = pyodbc.connect(
+        r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
+        rf"DBQ={output_path};"
+    )
+    pyodbc_cur = pyodbc_conn.cursor()
+    stats = BuildStats()
+
+    def _create_table_via_description(table: str) -> tuple[str, int]:
+        """Open a SHORT pymysql connection (ipynb pattern), pull the
+        first-row description, and return (CREATE TABLE sql, column_count).
+        Raises KeyError if any column's type code is outside
+        `_VERBATIM_FIELD_TYPE` — the caller treats that as
+        "skip this table" (same as the ipynb)."""
+        with _connect(cfg.mariadb, database=cfg.mariadb.database) as pms:
+            with pms.cursor() as cur:
+                cur.execute(f"select * from `{table}` limit 1")
+                desc = cur.description
+        cols = []
+        for row in desc:
+            name = row[0]
+            type_name = _VERBATIM_FIELD_TYPE[row[1]]  # may KeyError
+            cols.append(f"`{name}` {type_name}")
+        return f"CREATE TABLE `{table}` ( {','.join(cols)} )", len(cols)
+
+    def _fetch_all_rows(table: str) -> list[tuple[Any, ...]]:
+        """Open a SHORT pymysql conn (DictCursor like the ipynb), pull
+        every row of `table` as a list of dicts, return as a list of
+        tuples in dict-value-iteration order (which matches the
+        CREATE TABLE positional column order we just emitted, because
+        both come from the same `cursor.description` ordering)."""
+        with _connect(cfg.mariadb, database=cfg.mariadb.database) as pms:
+            with pms.cursor(pymysql.cursors.DictCursor) as cur:
+                cur.execute(f"SELECT * FROM `{table}`")
+                rows = cur.fetchall()
+        return [tuple(r.values()) for r in rows]
+
+    try:
+        # Discover MariaDB BASE tables (excluding views). `SHOW TABLES`
+        # by itself includes views like `View_BiogInstData` /
+        # `View_PossessionsData`, and SELECTing from those raises
+        # `OperationalError(1449, "The user specified as a definer
+        # ('cbdb'@'%') does not exist")` against the CBDB cache. The
+        # MariaDB → mdb mirror only needs base tables anyway, so we
+        # filter via TABLE_SCHEMA + TABLE_TYPE in INFORMATION_SCHEMA
+        # rather than `SHOW TABLES`. Case-insensitive skip filter
+        # applies on top.
+        with _connect(cfg.mariadb, database=cfg.mariadb.database) as pms:
+            with pms.cursor() as cur:
+                cur.execute(
+                    "SELECT TABLE_NAME FROM information_schema.TABLES "
+                    "WHERE TABLE_SCHEMA = %s AND TABLE_TYPE = 'BASE TABLE' "
+                    "ORDER BY TABLE_NAME",
+                    (cfg.mariadb.database,),
+                )
+                all_tables = [r[0] for r in cur.fetchall()]
+
+        for raw_name in all_tables:
+            if raw_name.lower() in _VERBATIM_SKIP_LOWER:
+                stats.tables_skipped.append(raw_name)
+                continue
+            table = raw_name.upper()  # mdb stores names uppercase like ipynb
+            try:
+                create_sql, col_count = _create_table_via_description(raw_name)
+            except KeyError:
+                stats.tables_skipped.append(raw_name)
+                continue
+            # ipynb does DROP TABLE if already exists. We start with an
+            # empty mdb so this is never needed; CREATE alone.
+            pyodbc_cur.execute(create_sql.replace(f"`{raw_name}`", f"`{table}`"))
+            pyodbc_conn.commit()
+            stats.tables_created += 1
+
+            rows = _fetch_all_rows(raw_name)
+            placeholders = ",".join(["?"] * col_count)
+            insert_sql = f"INSERT INTO `{table}` VALUES ({placeholders});"
+            for row in rows:
+                normalised = tuple(_normalise_value_verbatim(v) for v in row)
+                pyodbc_cur.execute(insert_sql, normalised)
+            pyodbc_conn.commit()
+            stats.rows_inserted += len(rows)
+    finally:
+        if pyodbc_cur is not None:
+            try:
+                pyodbc_cur.close()
+            except Exception:
+                pass
+        if pyodbc_conn is not None:
+            try:
+                pyodbc_conn.close()
+            except Exception:
+                pass
+
+    return stats
+
+
 def build_mdb_from_events(
     events: Iterable[TableSchema | Row],
     output_path: Path,
@@ -545,6 +802,12 @@ def _write_manifest(
         "rows_inserted": stats.rows_inserted,
         "built_at": datetime.now(UTC).isoformat(),
         "elapsed_seconds": round(elapsed, 2),
+        # The standalone `cbdb-parity-build-mdb` CLI uses the
+        # Datadump-direct (event-stream) builder path. Stamp the
+        # corresponding builder_version so build_all's cache check
+        # accepts this artifact without forcing a rebuild. Must stay
+        # in sync with `cbdb_parity.build_all._MDB_BUILDER_VERSION_DATADUMP`.
+        "builder_version": "1.3b-mysqldump-parser-overlay",
     }
     manifest_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
 

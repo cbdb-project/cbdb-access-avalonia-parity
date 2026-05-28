@@ -200,7 +200,14 @@ def test_build_all_preserves_same_sha_sibling_products_on_success(
         "version": 1,
         "datadump": {"filename": "x.tar.gz", "sha256": "deadbeef" * 8, "date_tag": "20260101"},
         "products": {
-            "mdb": {"path": str(mdb_path), "rows_inserted": 12345},
+            # Include builder_version so this counts as a same-builder
+            # cache entry — without it the new (1.6c) builder-version
+            # gate would invalidate and rebuild.
+            "mdb": {
+                "path": str(mdb_path),
+                "rows_inserted": 12345,
+                "builder_version": "1.3b-mysqldump-parser-overlay",
+            },
         },
     }), encoding="utf-8")
 
@@ -741,8 +748,14 @@ def test_build_all_use_cache_short_circuits_when_products_exist(
         "version": 1,
         "datadump": {"filename": "x.tar.gz", "sha256": "deadbeef" * 8, "date_tag": "20260101"},
         "products": {
-            "sqlite": {"path": str(sqlite_path), "rows_inserted": 100},
-            "mdb": {"path": str(mdb_path), "rows_inserted": 100},
+            "sqlite": {
+                "path": str(sqlite_path), "rows_inserted": 100,
+                "builder_version": "1.2-python-port",
+            },
+            "mdb": {
+                "path": str(mdb_path), "rows_inserted": 100,
+                "builder_version": "1.3b-mysqldump-parser-overlay",
+            },
         },
     }), encoding="utf-8")
 
@@ -935,8 +948,14 @@ def test_build_all_use_cache_survives_other_repo_refresh(
         "version": 1,
         "datadump": {"filename": "x.tar.gz", "sha256": "deadbeef" * 8, "date_tag": "20260101"},
         "products": {
-            "sqlite": {"path": str(sqlite_path)},
-            "mdb": {"path": str(mdb_path)},
+            "sqlite": {
+                "path": str(sqlite_path),
+                "builder_version": "1.2-python-port",
+            },
+            "mdb": {
+                "path": str(mdb_path),
+                "builder_version": "1.3b-mysqldump-parser-overlay",
+            },
         },
     }), encoding="utf-8")
 
