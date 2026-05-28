@@ -102,6 +102,69 @@ The bottom of each entry adds:
 - **Suppress until**: same fix as office_basic — Avalonia code
   SELECTs `c_appt_code` or the SQLite export adds an alias.
 
+### kinship_expanded_network — Python port of Avalonia GetExpandedKinshipsAsync deferred
+
+- **First observed**: 2026-05-28
+- **Side**: harness (Python port not yet implemented)
+- **Class**: harness gap
+- **Description**: `tests/test_phase4_kinships_pair.py` covers the
+  direct (`expandNetwork=false`) branch only. The
+  `expandNetwork=true` branch in Avalonia
+  `SqlitePersonBrowserService.GetExpandedKinshipsAsync` does an
+  iterative graph traversal with depth limits (`maxUp=2, maxDown=2,
+  maxMarriage=1, maxCollateral=1, maxLoop=10`) — a deterministic
+  state machine using `KinshipTraversalState.Extend` and
+  `ReduceKinship`. Porting it to Python is mechanical but non-trivial
+  and would significantly grow `cbdb_parity.avalonia_kinships`.
+- **Root cause**: bandwidth — Tier 2 prioritised SQL-level parity.
+- **Suppress rationale**: Tier 2 already verifies the 1-hop SQL is
+  identical across SQLite and Access. The recursive traversal is
+  pure post-processing — porting it gates on a separate Python-side
+  state-machine implementation, not on the parity contract itself.
+- **Suppress until**: a Python port of GetExpandedKinshipsAsync lands
+  (likely as `cbdb_parity.avalonia_kinships_expanded`).
+
+### group_data_demographics — Access-only; no Avalonia analogue
+
+- **First observed**: 2026-05-28
+- **Side**: Avalonia (gap)
+- **Class**: Access-only flow
+- **Description**: Access `Form_LookAtGroupData` / `CmdRun`
+  (`groupdata_demographic_stats`) computes demographic distributions
+  for a person set (birth-year histograms, status frequencies, etc.).
+  Avalonia's `IGroupPeopleService.QueryAsync` returns grouped
+  per-relation records (the equivalent of running each Tier 2
+  per-person accessor for a list of people and concatenating); it
+  does NOT produce demographic stats. The two are genuinely different
+  questions, not a shape-mismatch.
+- **Root cause**: Avalonia hasn't implemented the demographic
+  aggregation flow.
+- **Suppress rationale**: nothing to compare. If Avalonia adds
+  demographic aggregation, this entry should be replaced by a
+  paired test.
+- **Suppress until**: Avalonia adds a demographic-aggregation
+  service or method.
+
+### avalonia_gap — Texts / Networks / AssociationPairs / Place
+
+- **First observed**: 2026-05-28
+- **Side**: Avalonia (gap)
+- **Class**: Access-only flow (4 distinct features)
+- **Description**: Access has test-driven flows for `texts_basic_search`
+  (Form_LookAtTexts), `network_personal_expansion` (Form_LookAtNetworks),
+  `assocpairs_path_queries` (Form_LookAtAssociationPairs), and
+  `place_basic_search` (Form_LookAtPlace). Avalonia has no equivalent
+  services for any of these (per
+  `coverage/avalonia_queries.yaml`).
+- **Root cause**: Avalonia is biased toward person-centric flows
+  (PersonBrowser per-person accessors); text/place/network-centric
+  flows haven't been ported from Access yet.
+- **Suppress rationale**: nothing to compare until Avalonia
+  implements at least one of these. Listed individually in
+  `coverage/matrix.md`; this entry is a quick cross-reference.
+- **Suppress until**: at least one of Texts / Networks /
+  AssociationPairs / Place lands in `cbdb-desktop-app`.
+
 ## Suppression sunset
 
 Per WORK_PLAN §7, every entry in this file should also have a

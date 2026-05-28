@@ -204,14 +204,28 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
   - ✅ 3d (Office pair): `cbdb_parity.avalonia_office_query` + `cbdb_parity.access_office_query` + `tests/test_phase3d_office_pair.py`. Field naming aligns with `Cbdb.App.Core.OfficeQueryRecord` snake-case property names; the 57/64 reader swap (SQL columns vs constructor positions) is mirrored in `_sql_row_to_record_row`. Access bridge rejects request branches `cbdb_replay/lookatoffice` cannot faithfully replay (person_keyword / dynasty_ids / place ids when set / empty office_codes) so the parity report doesn't blame Avalonia for mismatches the bridge silently caused. Codex iterated v1..v7 clean.
   - ✅ 3e (Status pair): `cbdb_parity.avalonia_status_query` + `cbdb_parity.access_status_query` + `tests/test_phase3e_status_pair.py`. Same shape as 3d (positional record-order, unsupported-branch rejection, post-fetch label sort, strict-pipeline path-match gate). 36-field record; no positional swap (the C# reader's column indices match SELECT order directly). Codex queued behind rate-limit reset.
 
-- **Phase 4 (ongoing, in progress)** — expand coverage query-by-query; each new query lands with its diff report and (if mismatched) a root-cause note. Real end-to-end PASS results so far:
-  - ✅ **Tier 2 altnames** (`tests/test_phase4_altnames_pair.py`): `cbdb_parity.avalonia_altnames` + `cbdb_parity.access_altnames`. Direct-SQL compare pattern (no cbdb_replay wrapper); raw `name_type_code`/`source_id` ID columns surfaced for stable diff-keying.
-  - ✅ **Tier 2 entries** (`tests/test_phase4_entries_pair.py`): `cbdb_parity.avalonia_entries` + `cbdb_parity.access_entries`. 29-column SELECT × 11 JOINs (parenthesised for Access ODBC); same JoinDisplay post-processing on both sides.
-  - Remaining Tier 2 targets (~11): `addresses`, `writings`, `postings`, `statuses` (per-person, distinct from Phase 3e's `status_basic_search`), `possessions`, `events`, `kinships`, `associations`, `sources`, `institutions`, `detail`. Each follows the established pattern: extract SQL from C# verbatim string, parenthesise JOINs for Access, surface raw ID columns for diff-keying.
-  - Tier 1 shape-mismatched pairs (BIOG basic / associations / kinship / GroupData) and Access-only categories (Texts / Networks / AssociationPairs / Place) still queued for after Tier 2 completes.
-  - Infrastructure helpers added during Tier 2 work:
+- **Phase 4 (complete)** — query-by-query coverage expansion. Final state: **17 paired tests landed end-to-end (387 passed, 2 documented-upstream-skip)**.
+  - ✅ **Tier 1 strict-same-shape** (Phase 3): entry / office / status — `tests/test_phase3{c,d,e}_*_pair.py`.
+  - ✅ **Tier 1 shape-negotiated** (Phase 4):
+    - **BIOG basic** — `tests/test_phase4_biog_basic_pair.py` (SearchAsync no-keyword branch). 50/50 matching at limit=50.
+    - **associations cross-person** — resolved into Tier 2 per-person `tests/test_phase4_associations_pair.py` (660/660 matching with text_title in diff key).
+    - **kinship recursive** — direct-branch resolved into Tier 2 `tests/test_phase4_kinships_pair.py` (25/25). The `expandNetwork=true` graph traversal is queued in known_issues.md (`kinship_expanded_network`) — port of `KinshipTraversalState`+`ReduceKinship` is pure post-processing on top of the already-verified SQL.
+    - **GroupData** — closed as no-pair (genuinely misaligned shapes); known_issues.md entry `group_data_demographics`.
+  - ✅ **Tier 2 per-person PersonBrowser accessors** — 13/13:
+    - altnames, entries, addresses, writings, statuses, possessions, events, kinships, associations, sources, institutions, detail (PASS).
+    - postings auto-skips on the documented upstream `pto.c_appt_type_code` schema bug (same bug as office_basic); same single upstream fix re-arms both.
+  - ✅ **Access-only categories** (Texts / Networks / AssociationPairs / Place): documented as Avalonia gaps in `reports/known_issues.md` under `avalonia_gap`. Nothing to compare until Avalonia implements the corresponding services in `cbdb-desktop-app`.
+  - Established Tier 2 implementation pattern (codified across 13 accessors):
+    1. extract C# SQL via `find_sql_block(cs_path, discriminator)` where the discriminator is a token unique to that block (often a raw alias like `bad.c_sequence` or table-qualified column);
+    2. splice raw ID columns into the SELECT for stable diff-keying (anchor: a unique substring just before `FROM`);
+    3. hand-mirror the Access SQL with parenthesised chained LEFT JOINs (N joins → N−1 opening parens before the base table) and SQLite→Access expression rewrites (`||`→`&`, `CASE`→`IIf`, `LIMIT/OFFSET`→`TOP n` + Python slice, `WITH`→inline subquery);
+    4. apply `JoinDisplay` post-processing identically on both sides;
+    5. coerce bool columns via `_to_bool_or_none` for `c_*_intercalary`/`c_natal`/etc.;
+    6. choose a diff key that's unique-per-person (sometimes requires the natural key tail — e.g. ASSOC_DATA needs `c_text_title` because multiple texts can document the same logical association).
+  - Infrastructure helpers added during Phase 4:
     - `cbdb_parity.avalonia_query_sql.extract_sql_blocks` now also extracts non-interpolated `@"..."` C# verbatim strings (used throughout `SqlitePersonBrowserService.cs`), in source order, while deliberately excluding interpolated `$@"..."` / `@$"..."` whose `{placeholder}` substitutions aren't valid raw SQL.
     - `cbdb_parity.access_query._replay_row_to_avalonia_shape` (and the office/status variants) coerce pandas-NaN → None so SQL-NULL columns don't surface as 198/200 spurious mismatches.
+    - Shared `_join_display` / `_to_bool_or_none` helpers in `cbdb_parity.avalonia_altnames` and `cbdb_parity.avalonia_addresses` are reused across all Tier 2 bridges to keep post-processing identical.
 
 ## 9. Open questions
 
