@@ -98,7 +98,7 @@ def _avalonia_request_to_replay_inputs(
     request: EntryQueryRequest,
     *,
     mdb_path: Path | None = None,
-) -> Any:
+) -> Any | None:
     """Map cbdb_parity.avalonia_query.EntryQueryRequest →
     cbdb_replay.lookatentry.EntryQueryInputs.
 
@@ -150,13 +150,17 @@ def _avalonia_request_to_replay_inputs(
         looked = _lookup_dynasty_year_range_entry(
             mdb_path, int(request.dynasty_ids[0])
         )
-        if looked is not None:
-            from_dynasty, to_dynasty, from_dynasty_begin, to_dynasty_end = looked
-            year_mode = "dynasty"
-        # else: leave year_mode='none' — DYNASTIES row missing should
-        # be exceedingly rare; caller will see zero rows on the
-        # Access side and a real diff on the Avalonia side, which is
-        # the right surface.
+        if looked is None:
+            # DYNASTIES has no row for this id. Avalonia still applies
+            # `b.c_dy IN (id)` and gets zero rows because no BIOG_MAIN
+            # row has that c_dy either. The cbdb_replay path, with no
+            # year_mode set, would run UNFILTERED — silently broadening
+            # the Access ground truth, exactly the regression codex
+            # round-3 flagged. Return None so the caller short-circuits
+            # to an empty Access-side result, matching Avalonia.
+            return None
+        from_dynasty, to_dynasty, from_dynasty_begin, to_dynasty_end = looked
+        year_mode = "dynasty"
 
     entry_codes = list(request.entry_codes) if request.entry_codes else None
     # cbdb_replay expects int entry codes; the Avalonia request uses str.
@@ -257,6 +261,11 @@ def entry_query_access(
     from cbdb_replay.lookatentry import run as replay_run
 
     inputs = _avalonia_request_to_replay_inputs(request, mdb_path=mdb_path)
+    # Translator returned None: empty Access-side result by design
+    # (e.g. dynasty_ids references a row not in DYNASTIES, where
+    # Avalonia would also return zero rows via b.c_dy IN (...)).
+    if inputs is None:
+        return []
     conn_str = (
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
         rf"DBQ={mdb_path};"
