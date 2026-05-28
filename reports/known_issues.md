@@ -123,6 +123,20 @@ The historical bug description is preserved below for reference.
   SELECTs `c_appt_code` or the SQLite export adds an alias.
   **RESOLVED 2026-05-28** — upstream patched.
 
+### [RESOLVED 2026-05-28] kinship_expanded_network — port landed
+
+`cbdb_parity/avalonia_kinships_expanded.py` now mirrors
+`GetExpandedKinshipsAsync` end-to-end (KinshipReductionRules dict,
+ReduceKinship / ResolveKinshipDisplay / Extend / BuildNotes,
+maxLoop=10 BFS, depth caps, final OrderBy chain).
+`tests/test_phase4_kinships_expanded.py` asserts six structural
+invariants of the port (unique-by-kin, depth caps on derived rows,
+direct ⊆ expanded, monotone count, determinism) plus a
+ReduceKinship unit test. Original entry preserved below for
+reference.
+
+---
+
 ### kinship_expanded_network — Python port of Avalonia GetExpandedKinshipsAsync deferred
 
 - **First observed**: 2026-05-28
@@ -143,7 +157,8 @@ The historical bug description is preserved below for reference.
   pure post-processing — porting it gates on a separate Python-side
   state-machine implementation, not on the parity contract itself.
 - **Suppress until**: a Python port of GetExpandedKinshipsAsync lands
-  (likely as `cbdb_parity.avalonia_kinships_expanded`).
+  (likely as `cbdb_parity.avalonia_kinships_expanded`). **RESOLVED
+  2026-05-28**.
 
 ### group_data_demographics — Access-only; no Avalonia analogue
 
