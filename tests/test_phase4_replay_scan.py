@@ -233,6 +233,17 @@ def _translate_office_to_avalonia(replay_inputs: Any):
             to_d = int(yf.to_dynasty or from_d)
             dynasty_ids = tuple(range(from_d, to_d + 1)) if from_d else ()
 
+    # cbdb_replay.lookatoffice has an INDEPENDENT use_office_years /
+    # office_from_year / office_to_year channel that gates the
+    # POSTED_TO_OFFICE_DATA year columns. Avalonia mirrors this with
+    # use_office_year_range / office_year_from / office_year_to.
+    # Dropping these silently makes the Access side filtered while
+    # the Avalonia side runs without the office-year filter, which
+    # surfaces as false parity failures. (codex final-round-2 P1.)
+    use_office_year_range = bool(getattr(replay_inputs, "use_office_years", False))
+    office_year_from = int(getattr(replay_inputs, "office_from_year", None) or 0)
+    office_year_to = int(getattr(replay_inputs, "office_to_year", None) or 0)
+
     office_codes = tuple(
         str(c) for c in (getattr(replay_inputs, "office_codes", None) or ())
     )
@@ -241,6 +252,9 @@ def _translate_office_to_avalonia(replay_inputs: Any):
         use_index_year_range=use_index_year_range,
         index_year_from=index_year_from,
         index_year_to=index_year_to,
+        use_office_year_range=use_office_year_range,
+        office_year_from=office_year_from,
+        office_year_to=office_year_to,
         dynasty_ids=dynasty_ids,
         limit=100000,
     ), None)

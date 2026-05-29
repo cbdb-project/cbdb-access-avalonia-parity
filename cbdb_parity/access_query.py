@@ -233,6 +233,14 @@ def _replay_row_to_avalonia_shape(replay_row: dict[str, Any]) -> dict[str, Any]:
         # codes); Avalonia returns it as text (CAST in the SELECT). Normalise.
         if av_field == "entry_code" and value is not None:
             value = str(value)
+        # Avalonia coerces NULL `sequence` to 0
+        # (`reader.IsDBNull(10) ? 0` in SqliteEntryQueryService.cs).
+        # Mirror that here so NULL-sequence rows don't show up as
+        # false value_mismatches AND don't degrade into row-presence
+        # mismatches via the (person_id, sequence) diff key.
+        # (codex final-round-2 P1.)
+        elif av_field == "sequence" and value is None:
+            value = 0
         out[av_field] = value
     return out
 
