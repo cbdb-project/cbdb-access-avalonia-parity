@@ -131,6 +131,16 @@
   本條目應被一個配對測試取代。
 - **豁免至**: Avalonia 新增人口統計聚合的服務或方法。
 
+### [已解決 2026-05-28] entry_all_jinshi_general_song
+
+cbdb-desktop-app 的 LIMIT 上限已從 10_000 提升到 100_000
+(三個 Sqlite*QueryService 都改了),所有後續 Python clamp
+鏡像也同步調整。replay scan 中該 case 現在通過 40_621 /
+40_621 / 0 mismatch,完整列出原始結果集無截斷。原始條目保留於下,
+作為歷史紀錄。
+
+---
+
 ### entry_all_jinshi_general_song — LIMIT 截斷 + 缺 ORDER BY(**不是**語意分歧)
 
 - **首次發現**: 2026-05-28,Datadump SHA `ed294faed44b`,由
@@ -176,7 +186,62 @@
   增加 ORDER BY,使其前 N 行切片成為確定性結果可比對。
 - **報告位置**: `reports/replay_scan/entry__all_jinshi_general_song/`。
 
-### avalonia_gap — Texts / Networks / AssociationPairs / Place
+### avalonia_gap — Texts / Networks / AssociationPairs / Place / GroupData
+
+**狀態 (2026-05-29)**: 已記錄為永久缺口。在 `cbdb-desktop-app` 中
+實作這些上游服務需要每項約 250 行 C# (request/record/interface/
+SQLite 實作) 再加上對應的 parity Python 鏡像與 pair test。
+不在現階段 parity-completion 工作範圍內;以下為每個服務的實作
+切入點文件,供未來 Avalonia 貢獻者使用。
+
+**給實作者的指引**:每個 `cbdb_replay/lookat*.py` 內含一份
+**部分參考實作**,可作為起點 — 但須注意這些 replay 模組僅涵蓋
+Access form 的**最簡 smoke-test 子分支**。Access VBA form 支援的
+選項遠多於 cbdb_replay 目前模型(例如 multi-hop 圖遍歷、
+完整人口統計聚合、二次網路)。Avalonia 作者應:
+
+1. 在 `Cbdb.App.Core/<X>QueryRequest.cs` 鏡像 request 形狀
+2. 在 `Cbdb.App.Core/<X>QueryRecord.cs` 鏡像每一列
+3. 加入 `Cbdb.App.Core/I<X>QueryService.cs` (`Task<…QueryResult>
+   QueryAsync(string sqlitePath, …QueryRequest request, …)`)
+4. 以 cbdb_replay SQL 為**起點**;對照
+   `cbdb-user-mdb-tests/tests/golden_helpers.py` 內的 Access VBA
+   以及原始 `Form_LookAt*.vb` / `.frm` 模組(若有),補齊 form
+   實際支援的完整選項矩陣。
+5. 加上 parity Python 鏡像與 Access bridge,依照現有 Entry/
+   Status/Office bridge 模式。
+
+**各功能切入點**(每項附上 replay 起點與 cbdb_replay **尚未**
+涵蓋的範圍):
+
+- **Texts**(最單純、最完整): `cbdb_replay/lookattexts.py` 約
+  第 50-200 行。回傳 `(person, text, role)` 三元組,按
+  `biblcat_codes` 過濾。15 column SELECT × 3 INNER JOIN;
+  端到端移植約 150 SLOC。cbdb_replay 在此項相對於 Access 的
+  覆蓋度尚算完整。
+- **Place**: `cbdb_replay/lookatplace.py`。起點:僅實作
+  `source='individual'` 模式。Access `Form_LookAtPlace.vb`
+  額外暴露 checkbox 驅動的來源模式 `Kin`、`Office`、`Status`、
+  `Entry`、`Institution`、`AssocPerson`、`AssocPlace`,replay
+  模組皆未模型化。Avalonia 實作者應查閱 VBA 取得完整的來源
+  模式矩陣。
+- **Networks**: `cbdb_replay/lookatnetworks.py`。起點:僅
+  1-hop 非親屬關聯邊。Access `network_personal_expansion`
+  支援多跳遍歷、kin+association 混合邊、深度限制擴展 — 是
+  replay seed 之上相當可觀的延伸。
+- **AssociationPairs**: `cbdb_replay/lookatassociationpairs.py`。
+  起點:僅直接 ASSOC 邊。Access `assocpairs_path_queries`
+  支援 path-style queries (A → B 經中介人物),replay 尚未
+  模型化。
+- **GroupData**: `cbdb_replay/lookatgroupdata.py`。起點:僅
+  回傳匯入人物的 base list。Access `groupdata_demographic_stats`
+  產出 histograms / frequency tables / cross-tabulations —
+  真的是與任何現有 Avalonia 服務形狀不同的東西,需要產品層
+  決策是否在 Avalonia 加入聚合功能。
+
+(歷史 Tier 1「Avalonia gap」交叉引用保留於下。)
+
+### avalonia_gap (legacy entry) — Texts / Networks / AssociationPairs / Place
 
 - **首次發現**: 2026-05-28
 - **側別**: Avalonia(缺口)
