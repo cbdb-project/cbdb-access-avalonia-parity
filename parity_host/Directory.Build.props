@@ -1,0 +1,34 @@
+<Project>
+
+  <!--
+    Forward the AVALONIA_REPO environment variable into an MSBuild
+    property. AVALONIA_REPO must point at a checkout of
+    https://github.com/frankslin/cbdb-desktop-app whose .csproj files
+    we reference via cross-repo <ProjectReference>.
+
+    Set it BEFORE invoking `dotnet build` / `dotnet run`:
+
+      PowerShell:  $env:AVALONIA_REPO = 'C:/Users/how612/Documents/GitHub/cbdb-desktop-app'
+      bash:        export AVALONIA_REPO=/c/Users/how612/Documents/GitHub/cbdb-desktop-app
+
+    The normal caller is the Python parity harness, which loads .env
+    via python-dotenv before subprocess-invoking the host, so this
+    propagates automatically there. See WORK_PLAN.md §Phase 5a for
+    the full contract.
+  -->
+  <PropertyGroup>
+    <AvaloniaRepo>$(AVALONIA_REPO)</AvaloniaRepo>
+  </PropertyGroup>
+
+  <!--
+    Fail fast if AVALONIA_REPO is not set, so the contributor sees a
+    helpful message instead of an opaque path-resolution error from
+    later <ProjectReference> lookups.
+  -->
+  <Target Name="_ValidateAvaloniaRepo" BeforeTargets="PrepareForBuild">
+    <Error
+      Text="AVALONIA_REPO env var is not set. Set it to a clone of cbdb-desktop-app (see parity_host/README.md)."
+      Condition="'$(AvaloniaRepo)' == ''" />
+  </Target>
+
+</Project>

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Cbdb.App.ParityHost</RootNamespace>
+    <AssemblyName>cbdb-parity-host</AssemblyName>
+    <!-- Treat compiler warnings as errors so silent drift is loud. -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!--
+    Cross-repo project references — Cbdb.App.Core for request /
+    record DTOs, Cbdb.App.Data for the Sqlite*QueryService
+    implementations. $(AvaloniaRepo) is sourced from the
+    AVALONIA_REPO env var via Directory.Build.props at the parent
+    dir; see WORK_PLAN.md Phase 5a for the env-var contract.
+
+    We intentionally do NOT commit these .csproj files or modify
+    upstream Avalonia. The reference is path-based; a `git pull` in
+    $AVALONIA_REPO picks up upstream changes on the next
+    `dotnet build`.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="$(AvaloniaRepo)/Cbdb.App.Core/Cbdb.App.Core.csproj" />
+    <ProjectReference Include="$(AvaloniaRepo)/Cbdb.App.Data/Cbdb.App.Data.csproj" />
+  </ItemGroup>
+
+</Project>
