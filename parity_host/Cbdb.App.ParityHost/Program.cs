@@ -98,18 +98,32 @@ internal static class Program
     }
 
     /// <summary>
-    /// Shared <see cref="JsonSerializerOptions"/>. PropertyNameCaseInsensitive=
-    /// true matches the Python harness's tendency to use snake_case
-    /// or camelCase interchangeably; default Pascal output is fine
-    /// because Python json.loads() handles any casing.
+    /// Shared <see cref="JsonSerializerOptions"/>.
+    ///
+    /// <para>
+    /// <b>PropertyNamingPolicy = SnakeCaseLower</b>: the wire contract is
+    /// snake_case in both directions, matching Python idiom
+    /// (`dataclasses.asdict()` + `json.dumps()` already produces
+    /// snake_case). So <c>{"entry_codes": ["36"]}</c> deserialises into
+    /// <c>EntryQueryRequest.EntryCodes</c>, and serialised
+    /// <c>EntryQueryResult.Records</c> writes back as <c>records</c>.
+    /// PropertyNameCaseInsensitive alone does NOT bridge the underscore
+    /// difference — without the policy, snake_case input silently
+    /// constructs the record with default values and later crashes in
+    /// <c>SqliteEntryQueryService.QueryAsync</c> on
+    /// <c>request.DynastyIds.Count</c> (NRE on a null
+    /// <c>IReadOnlyList&lt;int&gt;</c>). Codex round-1 caught this.
+    /// </para>
+    /// <para>
+    /// <b>UnsafeRelaxedJsonEscaping</b>: emit non-ASCII (CJK) chars
+    /// verbatim instead of <c>\uXXXX</c> escapes, keeping the wire
+    /// payload compact and diff output readable.
+    /// </para>
     /// </summary>
     private static readonly JsonSerializerOptions _jsonOptions = new()
     {
-        PropertyNameCaseInsensitive = true,
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
         WriteIndented = false,
-        // Ensure non-ASCII (CJK) chars are emitted verbatim, not as
-        // \uXXXX escapes — keeps the wire payload compact and the
-        // diff output human-readable.
         Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
     };
 }
