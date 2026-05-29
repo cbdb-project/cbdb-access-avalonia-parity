@@ -82,8 +82,10 @@ caused by:
 ## What the scan answers (and what it doesn't)
 
 **Does answer**: for each Access test input that both backends can
-execute, do they return the same rows? Yes for 2/10, plus 1
-divergence found.
+execute, do they return the same rows? Yes for 4/10. The remaining
+6 cases are either documented Avalonia gaps (3 `addr_field=person`
++ 2 empty-codes semantic mismatch) or the documented LIMIT-cap
+xfail (1 — `all_jinshi_general_song`).
 
 **Doesn't answer**: it doesn't grow our query coverage — the 10 cases
 are whatever cbdb-user-mdb-tests already encodes. To widen coverage,

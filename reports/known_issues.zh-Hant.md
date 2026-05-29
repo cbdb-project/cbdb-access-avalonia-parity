@@ -94,6 +94,18 @@
 - **豁免至**: `Cbdb.App.ParityHost` (Phase 5) 落地並把受影響的
   測試切換過去。
 
+### [已解決 2026-05-28] kinship_expanded_network — Python 移植已落地
+
+`cbdb_parity/avalonia_kinships_expanded.py` 現已完整鏡像
+`GetExpandedKinshipsAsync` 從頭到尾(KinshipReductionRules dict、
+ReduceKinship / ResolveKinshipDisplay / Extend / BuildNotes、
+maxLoop=10 BFS、深度上限、最終 OrderBy chain)。
+`tests/test_phase4_kinships_expanded.py` 斷言六項該移植的結構不變式
+(unique-by-kin、衍生列的深度上限、direct ⊆ expanded、單調計數、
+確定性)外加一個 ReduceKinship 單元測試。原始條目保留於下作為紀錄。
+
+---
+
 ### kinship_expanded_network — Avalonia GetExpandedKinshipsAsync 的 Python 移植被延後
 
 - **首次發現**: 2026-05-28
