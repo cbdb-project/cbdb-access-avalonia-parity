@@ -282,10 +282,19 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     NULL sequence → 0 coercion, etc.). All of these have been bug
     sources (codex caught ~10 P1/P2 issues across the 18 review
     rounds purely from Python-mirror drift). The replay scan +
-    Tier 1/2 pair tests stay; only their backend swaps. **NB**:
-    `cbdb_parity/avalonia_kinships_expanded.py` (the BFS port) MUST
-    be retained until 5d below finishes its byte-for-byte cross-check
-    — deleting it before 5d would erase the comparison target.
+    Tier 1/2 pair tests stay; only their backend swaps. **NB**: the
+    full dependency chain that the 5d kinship cross-check needs MUST
+    be retained until 5d finishes, NOT just
+    `cbdb_parity/avalonia_kinships_expanded.py` itself.
+    Concretely, `avalonia_kinships_expanded.py` imports
+    `_load_get_kinships_sql` from `cbdb_parity/avalonia_kinships.py`
+    (which in turn uses `extract_sql_blocks` from
+    `cbdb_parity/avalonia_query_sql.py`) and `_join_display` from
+    `cbdb_parity/avalonia_altnames.py`. Removing any of those before
+    5d finishes breaks the comparison target at import time. The
+    safe 5c ordering: defer deletion of the entire
+    `avalonia_{query_sql, altnames, kinships, kinships_expanded}.py`
+    cluster until 5d signs off, then delete all four in one commit.
 
   - **5d — kinship expandNetwork=true cross-check** (must precede
     5c's deletion of the kinships_expanded.py module): the BFS state
