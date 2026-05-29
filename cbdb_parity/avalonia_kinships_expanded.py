@@ -482,6 +482,49 @@ def expanded_kinships_query(
     } for s in survivors]
 
 
+def expanded_kinships_via_host(
+    sqlite_path: Path,
+    person_id: int,
+    *,
+    avalonia_repo: Path,
+) -> list[dict[str, Any]]:
+    """Run `GetKinshipsAsync(personId, expandNetwork=true)` via the
+    real C# host (Phase 5d).
+
+    The BFS state-machine implementation in this module
+    (`expanded_kinships_query`) is a hand-port — the highest-risk
+    mirror in the codebase. This helper makes the two outputs
+    diffable so any divergence is mirror drift to fix here.
+
+    Returns a list of dicts keyed by the snake_case wire format
+    that `Cbdb.App.ParityHost` emits. The Python BFS port's
+    output keys are also snake_case and overlap with this shape;
+    `tests/test_phase5d_kinships_byte_for_byte.py` does the row
+    comparison.
+    """
+    from cbdb_parity.parity_host import invoke_parity_host
+
+    response = invoke_parity_host(
+        "kinships",
+        sqlite_path,
+        {"person_id": person_id, "expand_network": True},
+        avalonia_repo=avalonia_repo,
+        # Expanded kinships does multi-hop BFS over the kin graph;
+        # well-connected nodes like Su Shi (1762) take ~2-3 minutes
+        # on this dataset. 300s covers the slowest test fixture
+        # without being absurd.
+        timeout_seconds=300.0,
+    )
+    # The host serialises an `IReadOnlyList<PersonKinshipItem>`
+    # directly, so the top-level is a list (not a {"records": ...}
+    # dict).
+    if not isinstance(response, list):
+        raise TypeError(
+            f"expected list response from kinships dispatch, got {type(response).__name__}"
+        )
+    return response
+
+
 def expanded_kinships_field_names() -> tuple[str, ...]:
     return _EXPANDED_KINSHIP_FIELDS
 

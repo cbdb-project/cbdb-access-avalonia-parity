@@ -52,15 +52,16 @@ internal static class Program
 
             var responseJson = service switch
             {
-                "entry"  => await DispatchEntryAsync(sqlitePath, requestBody),
-                "office" => await DispatchOfficeAsync(sqlitePath, requestBody),
-                "status" => await DispatchStatusAsync(sqlitePath, requestBody),
-                _        => throw new ArgumentException(
-                              $"unknown service '{service}' "
-                              + "(supported: entry, office, status; "
-                              + "PersonBrowser/GroupPeople/PlaceLookup/DynastyLookup "
-                              + "in later commits)"
-                          ),
+                "entry"     => await DispatchEntryAsync(sqlitePath, requestBody),
+                "office"    => await DispatchOfficeAsync(sqlitePath, requestBody),
+                "status"    => await DispatchStatusAsync(sqlitePath, requestBody),
+                "kinships"  => await DispatchKinshipsAsync(sqlitePath, requestBody),
+                _           => throw new ArgumentException(
+                                 $"unknown service '{service}' "
+                                 + "(supported: entry, office, status, kinships; "
+                                 + "GroupPeople/PlaceLookup/DynastyLookup "
+                                 + "in later commits)"
+                             ),
             };
 
             // Write a single JSON document to STDOUT, no trailing
@@ -134,6 +135,46 @@ internal static class Program
         var result = await service.QueryAsync(sqlitePath, request);
         return JsonSerializer.Serialize(result, _jsonOptions);
     }
+
+    /// <summary>
+    /// Dispatch <see cref="SqlitePersonBrowserService.GetKinshipsAsync"/>
+    /// — the BFS state machine when <c>expand_network=true</c>, or the
+    /// direct kinship list when <c>expand_network=false</c>.
+    /// Phase 5d's mirror-vs-host cross-check uses this.
+    ///
+    /// Request shape (snake_case JSON):
+    /// <code>{"person_id": int, "expand_network": bool}</code>
+    /// Response: JSON array of PersonKinshipItem (the C# return type).
+    /// </summary>
+    private static async Task<string> DispatchKinshipsAsync(
+        string sqlitePath, string requestBody)
+    {
+        var request = JsonSerializer.Deserialize<KinshipsRequest>(
+            requestBody, _jsonOptions
+        ) ?? throw new ArgumentException(
+            "kinships: request body could not be deserialised into "
+            + "{person_id, expand_network}"
+        );
+
+        var service = new SqlitePersonBrowserService();
+        var result = await service.GetKinshipsAsync(
+            sqlitePath,
+            request.PersonId,
+            expandNetwork: request.ExpandNetwork
+        );
+        return JsonSerializer.Serialize(result, _jsonOptions);
+    }
+
+    /// <summary>
+    /// Local DTO mirroring the (person_id, expand_network) shape the
+    /// kinships dispatch reads off STDIN. Kept here rather than in
+    /// Cbdb.App.Core because it's wire-format glue, not an Avalonia
+    /// query record.
+    /// </summary>
+    private sealed record KinshipsRequest(
+        int PersonId,
+        bool ExpandNetwork = false
+    );
 
     /// <summary>
     /// Shared <see cref="JsonSerializerOptions"/>.
