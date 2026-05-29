@@ -248,9 +248,22 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
       → reads JSON request from stdin, instantiates the service, runs
       `QueryAsync` / `Get*Async`, JSON-serialises the result to stdout.
       Errors → JSON `{error: ..., stack: ...}` on stderr.
-    - One executable handles all 7 Avalonia query surfaces (Entry,
-      Office, Status, PersonBrowser, GroupPeople, PlaceLookup,
-      DynastyLookup).
+    - One executable handles 6 of the 7 Avalonia query surfaces
+      (Entry, Office, Status, PersonBrowser's record-returning methods,
+      GroupPeople, PlaceLookup, DynastyLookup). **Special case**:
+      `IPersonBrowserService.GetRelatedItemsAsync` returns a
+      `DataTable` rather than a record/list DTO, so it needs a custom
+      JSON projection (column metadata + row arrays) — handled by a
+      dedicated dispatch branch, not the generic record-list serialiser.
+    - **Encoding contract** (load-bearing on Windows): both sides
+      MUST agree on UTF-8 for stdin/stdout/stderr. C# side sets
+      `Console.OutputEncoding = Console.InputEncoding = new UTF8Encoding(false)`
+      at host startup. Python side uses `subprocess.Popen(...,
+      stdin=PIPE, stdout=PIPE, stderr=PIPE, text=False)` and
+      .read()/.write() raw bytes that we decode/encode as UTF-8
+      explicitly. Without this, the many Chinese fields in CBDB rows
+      (c_name_chn, c_title_chn, etc.) mojibake under the default
+      Windows code page and parity diffs become meaningless.
 
   - **5b — Python harness switchover**: each of the existing
     `cbdb_parity/avalonia_*.py` modules currently does
@@ -269,33 +282,57 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     NULL sequence → 0 coercion, etc.). All of these have been bug
     sources (codex caught ~10 P1/P2 issues across the 18 review
     rounds purely from Python-mirror drift). The replay scan +
-    Tier 1/2 pair tests stay; only their backend swaps.
+    Tier 1/2 pair tests stay; only their backend swaps. **NB**:
+    `cbdb_parity/avalonia_kinships_expanded.py` (the BFS port) MUST
+    be retained until 5d below finishes its byte-for-byte cross-check
+    — deleting it before 5d would erase the comparison target.
 
-  - **5d — kinship expandNetwork=true cross-check**: the BFS state
+  - **5d — kinship expandNetwork=true cross-check** (must precede
+    5c's deletion of the kinships_expanded.py module): the BFS state
     machine in `cbdb_parity/avalonia_kinships_expanded.py` is the
     biggest manual port. Run both ports against the same set of
     person_ids and require byte-identical output before deprecating
-    the Python copy.
+    the Python copy. If 5d uncovers divergence, 5c on the kinships
+    module is blocked until reconciled.
 
   - **5e — coverage extension**: with C# directly callable, the
     documented Avalonia gaps (Texts / Networks / AssociationPairs /
-    Place / GroupData) become tractable — implementor only adds the
-    Avalonia service; parity harness picks it up via the ParityHost
-    automatically.
+    Place / GroupData) become more tractable, BUT NOT automatic. For
+    each new Avalonia service an implementor still needs to:
+      1. land the upstream service in `cbdb-desktop-app` (record +
+         interface + SqliteXxxService.cs, per the existing pattern);
+      2. add a dispatch branch in `Cbdb.App.ParityHost` that knows
+         how to deserialise the request JSON and serialise the
+         response;
+      3. add the Python-side wrapper in `cbdb_parity/avalonia_*.py`
+         (request dataclass + subprocess invocation + row
+         normalisation) and Access bridge (cbdb_replay mapping) and
+         pair test.
+    What 5e DOES win: the C# implementation runs literally, so there's
+    no more "Python mirror drifts from C#" failure mode. But every
+    new query still costs 3 distinct integrations, not zero.
 
   - **Caveats / open questions**:
     - **Startup cost**: `dotnet run` cold-start is ~500ms-1s. For ~400
       tests × multiple sub-queries each this matters. Mitigation:
       ParityHost stays alive as a daemon, Python harness streams
-      requests via stdin/stdout JSON line protocol (NDJSON).
+      NDJSON over stdin/stdout (UTF-8 byte pipes — see 5a encoding
+      contract). One-shot CLI mode kept for debugging.
+    - **UTF-8 pipe contract** (load-bearing): see 5a. NEVER let the
+      pipe inherit the default Windows code page (cp936 / cp1252
+      etc.) — CBDB rows are predominantly CJK.
     - **`Cbdb.App.Data` references Microsoft.Data.Sqlite**: ParityHost
-      will too. No additional native deps.
+      will too. No additional native deps. `Cbdb.App.Data` is a
+      library project with no DI container of its own; ParityHost
+      `new`s up `SqliteXxxService` instances directly (no
+      `IServiceProvider` needed).
     - **Test repro**: ParityHost output should be deterministic for a
       fixed (sqlite_path, request) pair. CI / parity reports keep
       the same SHA-anchoring contract.
     - **Backwards-compat during transition**: don't delete the SQL
-      extractor until 5c verification passes; the existing 400-test
-      green state is the floor.
+      extractor (or the `avalonia_kinships_expanded.py` BFS port,
+      explicitly) until 5d's byte-for-byte cross-check passes; the
+      existing 400-test green state is the floor.
 
 ## 9. Open questions
 
