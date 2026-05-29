@@ -35,12 +35,21 @@ def _dotnet_available_or_skip() -> None:
     pytest.skip(".NET SDK not installed (no dotnet CLI)")
 
 
-def _host_built_or_skip() -> None:
-    """Skip if the C# host hasn't been built yet.
+def _host_built_or_skip(avalonia_repo: Path) -> None:
+    """Skip if the C# host is unbuilt OR stale relative to upstream.
 
     We check for the published DLL — `invoke_parity_host` uses
     `--no-build`, so without this DLL the test would fail with a
     cryptic dotnet error instead of a clean skip.
+
+    Stale-DLL check (codex 5a-4 P2): after `scripts/refresh_external_
+    repos.py` pulls a newer `$AVALONIA_REPO`, the DLL can still be
+    present but no longer match the upstream contracts. We compare
+    the DLL mtime against the newest upstream `.cs` / `.csproj`
+    timestamp under the two referenced project dirs; if any
+    upstream file is newer, skip with a "needs rebuild" message.
+    Without this gate the test fails with a loader/type error for
+    what is actually an expected "host needs rebuild" state.
     """
     repo_root = Path(__file__).resolve().parent.parent
     host_dll = (
@@ -52,12 +61,34 @@ def _host_built_or_skip() -> None:
             f"ParityHost not built. Run `dotnet build {host_dll.parent.parent.parent}` "
             "with $AVALONIA_REPO set, or call cbdb_parity.parity_host.build_parity_host()."
         )
+    dll_mtime = host_dll.stat().st_mtime
+    # Walk the two referenced upstream project dirs — Cbdb.App.Core
+    # and Cbdb.App.Data — for any .cs / .csproj newer than the DLL.
+    # We bound the walk by extension to avoid stat'ing bin/obj output
+    # (which gets touched by other Avalonia builds and would produce
+    # spurious "stale" verdicts).
+    for sub in ("Cbdb.App.Core", "Cbdb.App.Data"):
+        upstream_dir = avalonia_repo / sub
+        if not upstream_dir.is_dir():
+            # Missing upstream tree is a separate concern handled by
+            # the Directory.Build.props fail-fast; skip silently here.
+            return
+        for ext in ("*.cs", "*.csproj"):
+            for src in upstream_dir.rglob(ext):
+                if "bin" in src.parts or "obj" in src.parts:
+                    continue
+                if src.stat().st_mtime > dll_mtime:
+                    pytest.skip(
+                        f"ParityHost DLL ({host_dll}) is older than upstream "
+                        f"{src.relative_to(avalonia_repo)}. Run "
+                        f"`cbdb_parity.parity_host.build_parity_host({avalonia_repo!r})`."
+                    )
 
 
 def test_parity_host_entry_smoke() -> None:
     cfg = _load_config_or_skip()
     _dotnet_available_or_skip()
-    _host_built_or_skip()
+    _host_built_or_skip(cfg.avalonia_repo)
 
     sqlite_path = cfg.build_output_dir / "cbdb.sqlite"
     if not sqlite_path.is_file():
@@ -107,7 +138,7 @@ def test_parity_host_entry_smoke() -> None:
 def test_parity_host_unknown_service_error() -> None:
     cfg = _load_config_or_skip()
     _dotnet_available_or_skip()
-    _host_built_or_skip()
+    _host_built_or_skip(cfg.avalonia_repo)
 
     from cbdb_parity.parity_host import ParityHostError, invoke_parity_host
 
