@@ -28,13 +28,13 @@ _EVENT_RECORD_FIELDS: tuple[str, ...] = (
     "intercalary",   # bool: ed.c_intercalary == 1
     "day",           # ed.c_day
     "ganzhi",        # JoinDisplay(gz.c_ganzhi_chn, gz.c_ganzhi_py)
-    "range",         # JoinDisplay(yr.c_range_chn, yr.c_range)
-    "address_chn",   # addr.c_name_chn
-    "address",       # addr.c_name
-    "source",        # JoinDisplay(src.c_title_chn, src.c_title)
-    "pages",         # ed.c_pages
-    "event",         # ed.c_event
-    "notes",         # ed.c_notes
+    "range",            # JoinDisplay(yr.c_range_chn, yr.c_range)
+    "address_name_chn", # addr.c_name_chn — upstream PersonEventItem.AddressNameChn
+    "address_name",     # addr.c_name     — upstream PersonEventItem.AddressName
+    "source",           # JoinDisplay(src.c_title_chn, src.c_title)
+    "pages",            # ed.c_pages
+    "event_text",       # ed.c_event — upstream PersonEventItem.EventText
+    "notes",            # ed.c_notes
 )
 _EVENT_ID_FIELDS: tuple[str, ...] = ("event_code",)
 
@@ -84,14 +84,14 @@ def events_query(
                 "intercalary":  _to_bool_or_none(interc),
                 "day":          day,
                 "ganzhi":       _join_display(gz_chn, gz_py),
-                "range":        _join_display(yr_chn, yr_en),
-                "address_chn":  addr_chn,
-                "address":      addr_en,
-                "source":       _join_display(src_chn, src_en),
-                "pages":        pages,
-                "event":        event_text,
-                "notes":        notes,
-                "event_code":   event_code,
+                "range":            _join_display(yr_chn, yr_en),
+                "address_name_chn": addr_chn,
+                "address_name":     addr_en,
+                "source":           _join_display(src_chn, src_en),
+                "pages":            pages,
+                "event_text":       event_text,
+                "notes":            notes,
+                "event_code":       event_code,
             })
     return rows
 

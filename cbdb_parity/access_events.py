@@ -76,14 +76,14 @@ def events_query_access(
                 "intercalary":  _to_bool_or_none(interc),
                 "day":          day,
                 "ganzhi":       _join_display(gz_chn, gz_py),
-                "range":        _join_display(yr_chn, yr_en),
-                "address_chn":  addr_chn,
-                "address":      addr_en,
-                "source":       _join_display(src_chn, src_en),
-                "pages":        pages,
-                "event":        event_text,
-                "notes":        notes,
-                "event_code":   event_code,
+                "range":            _join_display(yr_chn, yr_en),
+                "address_name_chn": addr_chn,
+                "address_name":     addr_en,
+                "source":           _join_display(src_chn, src_en),
+                "pages":            pages,
+                "event_text":       event_text,
+                "notes":            notes,
+                "event_code":       event_code,
             })
         cur.close()
     return rows

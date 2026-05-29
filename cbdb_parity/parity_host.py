@@ -178,8 +178,43 @@ def build_parity_host(avalonia_repo: Path) -> None:
     )
 
 
+def invoke_person_accessor_via_host(
+    service: str,
+    sqlite_path: Path,
+    person_id: int,
+    *,
+    avalonia_repo: Path,
+    timeout_seconds: float = 60.0,
+) -> list[dict[str, Any]]:
+    """Shortcut for the 11 PersonBrowser per-person accessors.
+
+    Each takes `{person_id}` on the wire and returns a JSON list
+    of records. Wraps `invoke_parity_host` so each Tier 2 mirror
+    module's `*_via_host` helper is one line.
+
+    `service` is the dispatch keyword (e.g. "addresses",
+    "altnames", "writings"). The corresponding mirror module
+    documents the C# method this dispatches to (e.g.
+    `SqlitePersonBrowserService.GetAddressesAsync`).
+    """
+    response = invoke_parity_host(
+        service,
+        sqlite_path,
+        {"person_id": person_id},
+        avalonia_repo=avalonia_repo,
+        timeout_seconds=timeout_seconds,
+    )
+    if not isinstance(response, list):
+        raise TypeError(
+            f"expected list response from '{service}' dispatch, "
+            f"got {type(response).__name__}"
+        )
+    return response
+
+
 __all__ = [
     "ParityHostError",
     "build_parity_host",
     "invoke_parity_host",
+    "invoke_person_accessor_via_host",
 ]
