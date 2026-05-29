@@ -50,18 +50,55 @@ internal static class Program
             // document. NDJSON streaming mode comes in 5a-4.
             var requestBody = await Console.In.ReadToEndAsync();
 
+            // Helper: parse person_id off STDIN once per accessor.
+            async Task<string> PersonAccessor<TResult>(
+                Func<SqlitePersonBrowserService, int, Task<TResult>> invoker)
+            {
+                var pr = JsonSerializer.Deserialize<PersonRequest>(
+                    requestBody, _jsonOptions
+                ) ?? throw new ArgumentException(
+                    "request body could not be deserialised into {person_id}"
+                );
+                var svc = new SqlitePersonBrowserService();
+                var res = await invoker(svc, pr.PersonId);
+                return JsonSerializer.Serialize(res, _jsonOptions);
+            }
+
             var responseJson = service switch
             {
-                "entry"     => await DispatchEntryAsync(sqlitePath, requestBody),
-                "office"    => await DispatchOfficeAsync(sqlitePath, requestBody),
-                "status"    => await DispatchStatusAsync(sqlitePath, requestBody),
-                "kinships"  => await DispatchKinshipsAsync(sqlitePath, requestBody),
-                _           => throw new ArgumentException(
-                                 $"unknown service '{service}' "
-                                 + "(supported: entry, office, status, kinships; "
-                                 + "GroupPeople/PlaceLookup/DynastyLookup "
-                                 + "in later commits)"
-                             ),
+                "entry"          => await DispatchEntryAsync(sqlitePath, requestBody),
+                "office"         => await DispatchOfficeAsync(sqlitePath, requestBody),
+                "status"         => await DispatchStatusAsync(sqlitePath, requestBody),
+                "kinships"       => await DispatchKinshipsAsync(sqlitePath, requestBody),
+                // PersonBrowser per-person accessors — all take just
+                // (sqlitePath, personId) and return IReadOnlyList<…>.
+                // Local generic helper above handles the JSON
+                // deserialisation; each branch supplies the
+                // service-method invocation.
+                "addresses"      => await PersonAccessor((svc, pid) => svc.GetAddressesAsync(sqlitePath, pid)),
+                "altnames"       => await PersonAccessor((svc, pid) => svc.GetAltNamesAsync(sqlitePath, pid)),
+                "writings"       => await PersonAccessor((svc, pid) => svc.GetWritingsAsync(sqlitePath, pid)),
+                "postings"       => await PersonAccessor((svc, pid) => svc.GetPostingsAsync(sqlitePath, pid)),
+                "entries"        => await PersonAccessor((svc, pid) => svc.GetEntriesAsync(sqlitePath, pid)),
+                "statuses"       => await PersonAccessor((svc, pid) => svc.GetStatusesAsync(sqlitePath, pid)),
+                "possessions"    => await PersonAccessor((svc, pid) => svc.GetPossessionsAsync(sqlitePath, pid)),
+                "events"         => await PersonAccessor((svc, pid) => svc.GetEventsAsync(sqlitePath, pid)),
+                "associations"   => await PersonAccessor((svc, pid) => svc.GetAssociationsAsync(sqlitePath, pid)),
+                "sources"        => await PersonAccessor((svc, pid) => svc.GetSourcesAsync(sqlitePath, pid)),
+                "institutions"   => await PersonAccessor((svc, pid) => svc.GetInstitutionsAsync(sqlitePath, pid)),
+                // GetDetailAsync returns PersonDetail? (nullable scalar),
+                // not a list — but the same PersonRequest shape works.
+                "detail"         => await PersonAccessor((svc, pid) => svc.GetDetailAsync(sqlitePath, pid)),
+                // BIOG basic search — (keyword, limit, offset).
+                "biog_basic"     => await DispatchBiogBasicAsync(sqlitePath, requestBody),
+                _                => throw new ArgumentException(
+                                      $"unknown service '{service}' "
+                                      + "(supported: entry, office, status, kinships, "
+                                      + "addresses, altnames, writings, postings, entries, "
+                                      + "statuses, possessions, events, associations, "
+                                      + "sources, institutions, detail, biog_basic; "
+                                      + "GroupPeople/PlaceLookup/DynastyLookup in later commits)"
+                                  ),
             };
 
             // Write a single JSON document to STDOUT, no trailing
@@ -175,6 +212,45 @@ internal static class Program
         int PersonId,
         bool ExpandNetwork = false
     );
+
+    /// <summary>
+    /// Local DTO for all per-person accessors that take just
+    /// <c>{person_id}</c> off STDIN.
+    /// </summary>
+    private sealed record PersonRequest(int PersonId);
+
+    /// <summary>
+    /// Local DTO for the BIOG-basic SearchAsync — matches the
+    /// (keyword, limit, offset) shape of <c>SearchAsync</c>.
+    /// </summary>
+    private sealed record BiogBasicRequest(
+        string? Keyword = null,
+        int Limit = 200,
+        int Offset = 0
+    );
+
+    /// <summary>
+    /// Dispatch <c>SqlitePersonBrowserService.SearchAsync</c> — the
+    /// "BIOG basic" search. Distinct shape from the per-person
+    /// accessors: takes <c>(keyword, limit, offset)</c> instead of
+    /// a person_id.
+    /// </summary>
+    private static async Task<string> DispatchBiogBasicAsync(
+        string sqlitePath, string requestBody)
+    {
+        var request = JsonSerializer.Deserialize<BiogBasicRequest>(
+            requestBody, _jsonOptions
+        ) ?? throw new ArgumentException(
+            "biog_basic: request body could not be deserialised into "
+            + "{keyword, limit, offset}"
+        );
+
+        var service = new SqlitePersonBrowserService();
+        var result = await service.SearchAsync(
+            sqlitePath, request.Keyword, request.Limit, request.Offset
+        );
+        return JsonSerializer.Serialize(result, _jsonOptions);
+    }
 
     /// <summary>
     /// Shared <see cref="JsonSerializerOptions"/>.
