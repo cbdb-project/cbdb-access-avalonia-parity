@@ -30,11 +30,29 @@ import pytest
 
 
 def _load_config_or_skip():
+    """Skip only on a *missing* config (env not set up); a config
+    that loads but raises a real error must surface, not silently
+    skip the whole suite.
+    """
     try:
         from cbdb_parity.config import load_config
+    except ImportError:
+        pytest.skip("cbdb_parity.config not importable")
+    try:
         return load_config()
-    except Exception as exc:
-        pytest.skip(f"config load failed: {exc}")
+    except FileNotFoundError as exc:
+        # .env / avalonia_repo not configured — legitimate skip on a
+        # dev machine without the harness wired up. Anything else
+        # (ValueError, KeyError, ...) is a real bug we must see.
+        pytest.skip(f"config not configured: {exc}")
+
+
+# Upstream subtrees the ParityHost actually links against — Codex
+# round 5c-2 flagged that the previous heuristic silently passed if
+# a subtree disappeared (it `return`ed instead of failing). We now
+# fail loudly if either subtree is missing AND a real config was
+# loaded.
+_UPSTREAM_SUBTREES: tuple[str, ...] = ("Cbdb.App.Core", "Cbdb.App.Data")
 
 
 def _prereqs_or_skip(avalonia_repo: Path) -> None:
@@ -48,10 +66,18 @@ def _prereqs_or_skip(avalonia_repo: Path) -> None:
     if not host_dll.is_file():
         pytest.skip("ParityHost not built. Run cbdb_parity.parity_host.build_parity_host(...)")
     dll_mtime = host_dll.stat().st_mtime
-    for sub in ("Cbdb.App.Core", "Cbdb.App.Data"):
+    missing = [s for s in _UPSTREAM_SUBTREES if not (avalonia_repo / s).is_dir()]
+    if missing:
+        # A configured AVALONIA_REPO that's missing a subtree the
+        # host links against is a hard error, not a skip — the host
+        # DLL we just loaded was built against THIS subtree layout.
+        raise AssertionError(
+            f"AVALONIA_REPO={avalonia_repo} is missing required "
+            f"subtree(s) {missing}; the ParityHost DLL was built "
+            f"against this layout and would crash."
+        )
+    for sub in _UPSTREAM_SUBTREES:
         upstream_dir = avalonia_repo / sub
-        if not upstream_dir.is_dir():
-            return
         for ext in ("*.cs", "*.csproj"):
             for src in upstream_dir.rglob(ext):
                 rel_parts = src.relative_to(upstream_dir).parts
@@ -110,6 +136,27 @@ def _assert_rows_equal(
 _FIXTURE_PERSON = 1762
 
 
+# Hard-coded allowlist of spliced raw-ID columns per mirror.
+# Codex 5c-2 caught that importing each mirror's *_id_field_names()
+# at test time means the test under-tests anything that mirror
+# decides to mark as "ID". Keep this table in the test, not the
+# mirror, so the suite is an independent oracle: if a mirror starts
+# emitting a new key, the suite notices via the symmetric schema
+# check rather than silently stripping it.
+_MIRROR_ID_FIELDS: dict[str, tuple[str, ...]] = {
+    "addresses":    ("addr_type_code", "addr_id"),
+    "altnames":     ("name_type_code", "source_id"),
+    "writings":     ("role_id",),
+    "entries":      ("entry_code",),
+    "statuses":     ("status_code",),
+    "possessions":  (),
+    "events":       ("event_code",),
+    "associations": ("assoc_code",),
+    "sources":      ("text_id",),
+    "institutions": ("inst_name_code", "inst_code"),
+}
+
+
 def _run_person_pair(
     service: str,
     mirror_fn,
@@ -151,92 +198,114 @@ def _run_person_pair(
 
 
 def test_addresses_mirror_vs_host() -> None:
-    from cbdb_parity.avalonia_addresses import addresses_id_field_names, addresses_query
-    _run_person_pair(
-        "addresses", addresses_query,
-        id_fields=addresses_id_field_names(),
-    )
+    from cbdb_parity.avalonia_addresses import addresses_query
+    _run_person_pair("addresses", addresses_query, id_fields=_MIRROR_ID_FIELDS["addresses"])
 
 
 def test_altnames_mirror_vs_host() -> None:
-    from cbdb_parity.avalonia_altnames import altnames_id_field_names, altnames_query
-    _run_person_pair(
-        "altnames", altnames_query,
-        id_fields=altnames_id_field_names(),
-    )
+    from cbdb_parity.avalonia_altnames import altnames_query
+    _run_person_pair("altnames", altnames_query, id_fields=_MIRROR_ID_FIELDS["altnames"])
 
 
 def test_writings_mirror_vs_host() -> None:
-    from cbdb_parity.avalonia_writings import writings_id_field_names, writings_query
-    _run_person_pair(
-        "writings", writings_query,
-        id_fields=writings_id_field_names(),
-    )
+    from cbdb_parity.avalonia_writings import writings_query
+    _run_person_pair("writings", writings_query, id_fields=_MIRROR_ID_FIELDS["writings"])
 
 
 def test_entries_mirror_vs_host() -> None:
-    from cbdb_parity.avalonia_entries import entries_id_field_names, entries_query
-    _run_person_pair(
-        "entries", entries_query,
-        id_fields=entries_id_field_names(),
-    )
+    from cbdb_parity.avalonia_entries import entries_query
+    _run_person_pair("entries", entries_query, id_fields=_MIRROR_ID_FIELDS["entries"])
 
 
 def test_statuses_person_mirror_vs_host() -> None:
-    from cbdb_parity.avalonia_statuses_person import (
-        statuses_person_id_field_names,
-        statuses_person_query,
-    )
-    _run_person_pair(
-        "statuses", statuses_person_query,
-        id_fields=statuses_person_id_field_names(),
-    )
+    from cbdb_parity.avalonia_statuses_person import statuses_person_query
+    _run_person_pair("statuses", statuses_person_query, id_fields=_MIRROR_ID_FIELDS["statuses"])
 
 
 def test_possessions_mirror_vs_host() -> None:
-    from cbdb_parity.avalonia_possessions import possessions_id_field_names, possessions_query
-    _run_person_pair(
-        "possessions", possessions_query,
-        id_fields=possessions_id_field_names(),
-    )
+    from cbdb_parity.avalonia_possessions import possessions_query
+    _run_person_pair("possessions", possessions_query, id_fields=_MIRROR_ID_FIELDS["possessions"])
 
 
 def test_events_mirror_vs_host() -> None:
-    from cbdb_parity.avalonia_events import events_id_field_names, events_query
-    _run_person_pair(
-        "events", events_query,
-        id_fields=events_id_field_names(),
-    )
+    from cbdb_parity.avalonia_events import events_query
+    _run_person_pair("events", events_query, id_fields=_MIRROR_ID_FIELDS["events"])
 
 
 def test_associations_mirror_vs_host() -> None:
-    from cbdb_parity.avalonia_associations import (
-        associations_id_field_names,
-        associations_query,
-    )
-    _run_person_pair(
-        "associations", associations_query,
-        id_fields=associations_id_field_names(),
-    )
+    from cbdb_parity.avalonia_associations import associations_query
+    _run_person_pair("associations", associations_query, id_fields=_MIRROR_ID_FIELDS["associations"])
 
 
 def test_sources_mirror_vs_host() -> None:
-    from cbdb_parity.avalonia_sources import sources_id_field_names, sources_query
-    _run_person_pair(
-        "sources", sources_query,
-        id_fields=sources_id_field_names(),
-    )
+    from cbdb_parity.avalonia_sources import sources_query
+    _run_person_pair("sources", sources_query, id_fields=_MIRROR_ID_FIELDS["sources"])
 
 
 def test_institutions_mirror_vs_host() -> None:
-    from cbdb_parity.avalonia_institutions import (
-        institutions_id_field_names,
-        institutions_query,
+    from cbdb_parity.avalonia_institutions import institutions_query
+    _run_person_pair("institutions", institutions_query, id_fields=_MIRROR_ID_FIELDS["institutions"])
+
+
+def test_detail_mirror_vs_host() -> None:
+    """PersonBrowserService.GetDetailAsync — returns a SINGLE
+    PersonDetail (not a list), so the via_host call is a dict, not a
+    list. Test asserts the mirror dict and host dict match key-for-
+    key and value-for-value.
+    """
+    cfg = _load_config_or_skip()
+    _prereqs_or_skip(cfg.avalonia_repo)
+    sqlite_path = cfg.build_output_dir / "cbdb.sqlite"
+    if not sqlite_path.is_file():
+        pytest.skip(f"sqlite not built at {sqlite_path}")
+
+    from cbdb_parity.avalonia_detail import detail_query
+    from cbdb_parity.parity_host import invoke_parity_host
+
+    avalonia_data = cfg.avalonia_repo / "Cbdb.App.Data"
+    mirror_rows = detail_query(
+        sqlite_path, _FIXTURE_PERSON, avalonia_data_dir=avalonia_data,
     )
-    _run_person_pair(
-        "institutions", institutions_query,
-        id_fields=institutions_id_field_names(),
+    host_row = invoke_parity_host(
+        "detail", sqlite_path, {"person_id": _FIXTURE_PERSON},
+        avalonia_repo=cfg.avalonia_repo,
     )
+    assert len(mirror_rows) == 1, f"mirror returned {len(mirror_rows)} detail rows"
+    assert isinstance(host_row, dict), f"host returned {type(host_row).__name__}"
+    # `fields` (PersonFieldValue[]) is the dynamic-field block the
+    # upstream PersonDetail record populates from PersonExtra2024
+    # lookups; the mirror never ported it. 5c-final replaces the
+    # mirror with a via_host delegate, at which point this gap
+    # disappears. Allow it here so the rest of the schema is gated.
+    _assert_rows_equal(
+        "detail", mirror_rows, [host_row],
+        ignore_fields=frozenset({"fields"}),
+    )
+
+
+def test_biog_basic_mirror_vs_host() -> None:
+    """SqlitePersonBrowserService.SearchAsync — the no-keyword
+    branch (mirror only ports that path today). limit=50 from
+    offset 0 to get a deterministic prefix of BIOG_MAIN.
+    """
+    cfg = _load_config_or_skip()
+    _prereqs_or_skip(cfg.avalonia_repo)
+    sqlite_path = cfg.build_output_dir / "cbdb.sqlite"
+    if not sqlite_path.is_file():
+        pytest.skip(f"sqlite not built at {sqlite_path}")
+
+    from cbdb_parity.avalonia_biog_basic import biog_basic_query
+    from cbdb_parity.parity_host import invoke_parity_host
+
+    limit = 50
+    mirror_rows = biog_basic_query(sqlite_path, limit=limit, offset=0)
+    host_rows = invoke_parity_host(
+        "biog_basic", sqlite_path,
+        {"keyword": None, "limit": limit, "offset": 0},
+        avalonia_repo=cfg.avalonia_repo,
+    )
+    assert isinstance(host_rows, list), f"host returned {type(host_rows).__name__}"
+    _assert_rows_equal("biog_basic", mirror_rows, host_rows)
 
 
 def test_postings_mirror_vs_host() -> None:

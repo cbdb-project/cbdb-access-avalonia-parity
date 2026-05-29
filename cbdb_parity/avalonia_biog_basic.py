@@ -22,7 +22,7 @@ from typing import Any
 _BIOG_BASIC_FIELDS: tuple[str, ...] = (
     "person_id",     # b.c_personid
     "name_chn",      # b.c_name_chn
-    "name",          # b.c_name
+    "name_rm",       # b.c_name — upstream PersonListItem.NameRm
     "index_year",    # b.c_index_year
     "index_address", # COALESCE(ac.c_name_chn, ac.c_name)
 )
@@ -57,7 +57,7 @@ def biog_basic_query(
             rows.append({
                 "person_id":     pid,
                 "name_chn":      name_chn,
-                "name":          name,
+                "name_rm":       name,
                 "index_year":    iy,
                 "index_address": idx_addr,
             })

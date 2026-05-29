@@ -52,7 +52,7 @@ def biog_basic_query_access(
             rows.append({
                 "person_id":     pid,
                 "name_chn":      name_chn,
-                "name":          name,
+                "name_rm":       name,
                 "index_year":    iy,
                 "index_address": idx_addr,
             })
