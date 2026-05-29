@@ -263,13 +263,21 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
   can stop mirroring C# semantics in Python and instead invoke the
   real C# services. Concretely:
 
-  - **5a — ParityHost console**:
-    - New project: `cbdb-desktop-app/Cbdb.App.ParityHost/`
-      (`dotnet new console -f net8.0`).
-    - References `Cbdb.App.Core` (for the request/record records) and
-      `Cbdb.App.Data` (for `SqliteEntryQueryService`,
-      `SqliteOfficeQueryService`, `SqliteStatusQueryService`,
-      `SqlitePersonBrowserService`).
+  - **5a — ParityHost console (lives IN THIS REPO, not upstream)**:
+    - Per §0 scope contract: the console project lives in
+      `cbdb-access-avalonia-parity/parity_host/Cbdb.App.ParityHost/`
+      (`dotnet new console -f net8.0`), NOT in `cbdb-desktop-app`.
+      We do not commit code to upstream Avalonia — the harness
+      references it.
+    - References `Cbdb.App.Core` and `Cbdb.App.Data` via
+      `<ProjectReference Include="$(AvaloniaRepo)/Cbdb.App.Core/Cbdb.App.Core.csproj" />`
+      style — the `AvaloniaRepo` MSBuild property is set from `.env`
+      via a small `Directory.Build.props` shim at the project root,
+      so contributors with different checkout paths still build cleanly.
+    - When the upstream tree moves (a `git pull` in
+      `$AVALONIA_REPO`), this console picks up the changes on next
+      `dotnet build`. No commits to upstream needed; no .csproj
+      edits in `cbdb-desktop-app`.
     - CLI: `cbdb-parity-host <service> <sqlite-path> <request-json>`
       → reads JSON request from stdin, instantiates the service, runs
       `QueryAsync` / `Get*Async`, JSON-serialises the result to stdout.
