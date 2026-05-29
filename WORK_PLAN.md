@@ -271,9 +271,23 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
       references it.
     - References `Cbdb.App.Core` and `Cbdb.App.Data` via
       `<ProjectReference Include="$(AvaloniaRepo)/Cbdb.App.Core/Cbdb.App.Core.csproj" />`
-      style — the `AvaloniaRepo` MSBuild property is set from `.env`
-      via a small `Directory.Build.props` shim at the project root,
-      so contributors with different checkout paths still build cleanly.
+      style — the `AvaloniaRepo` MSBuild property is read from the
+      **process environment variable** of the same name. MSBuild
+      doesn't parse `.env` natively, so the contract is:
+        - Python harness (the normal caller): always loads `.env` via
+          `python-dotenv` before any subprocess call, so
+          `os.environ["AVALONIA_REPO"]` is set before invoking
+          `dotnet run` or the published binary. Both `Popen` and
+          `subprocess.run` inherit the parent env by default.
+        - Manual `dotnet build` (rare — initial scaffold,
+          contributor IDE setup): contributor sets `AVALONIA_REPO`
+          themselves before running, e.g. `$env:AVALONIA_REPO = ...`
+          in PowerShell. A small `parity_host/README.md` documents
+          this one-liner.
+        - `Directory.Build.props` at the project root just exposes
+          the env var as an MSBuild property, e.g.
+          `<AvaloniaRepo>$(AVALONIA_REPO)</AvaloniaRepo>` inside a
+          `<PropertyGroup>`. No parsing of `.env`.
     - When the upstream tree moves (a `git pull` in
       `$AVALONIA_REPO`), this console picks up the changes on next
       `dotnet build`. No commits to upstream needed; no .csproj
