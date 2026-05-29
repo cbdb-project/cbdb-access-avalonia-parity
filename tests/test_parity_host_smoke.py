@@ -75,7 +75,14 @@ def _host_built_or_skip(avalonia_repo: Path) -> None:
             return
         for ext in ("*.cs", "*.csproj"):
             for src in upstream_dir.rglob(ext):
-                if "bin" in src.parts or "obj" in src.parts:
+                # Filter generated bin/obj output. Only inspect path
+                # components UNDER upstream_dir (so a parent dir
+                # named 'bin' on the host doesn't disable the check —
+                # codex 5a-4 P2). Match case-insensitively because
+                # Windows filesystems treat `Bin`/`Obj` as identical
+                # to `bin`/`obj`.
+                rel_parts = src.relative_to(upstream_dir).parts
+                if any(p.lower() in ("bin", "obj") for p in rel_parts):
                     continue
                 if src.stat().st_mtime > dll_mtime:
                     pytest.skip(
