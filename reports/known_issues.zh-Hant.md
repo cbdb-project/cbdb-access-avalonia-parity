@@ -188,7 +188,7 @@ cbdb-desktop-app 的 LIMIT 上限已從 10_000 提升到 100_000
 
 ### avalonia_gap — Texts / Networks / AssociationPairs / Place / GroupData
 
-**狀態 (2026-05-29)**: 已記錄為永久缺口。在 `cbdb-desktop-app` 中
+**狀態 (2026-05-28)**: 已記錄為永久缺口。在 `cbdb-desktop-app` 中
 實作這些上游服務需要每項約 250 行 C# (request/record/interface/
 SQLite 實作) 再加上對應的 parity Python 鏡像與 pair test。
 不在現階段 parity-completion 工作範圍內;以下為每個服務的實作

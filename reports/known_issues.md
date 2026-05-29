@@ -181,6 +181,19 @@ reference.
 - **Suppress until**: Avalonia adds a demographic-aggregation
   service or method.
 
+### [RESOLVED 2026-05-28] entry_all_jinshi_general_song — LIMIT cap raised upstream
+
+The cap that caused the original failure has been bumped from 10_000
+to 100_000 in cbdb-desktop-app (`SqliteEntryQueryService.cs` +
+`SqliteOfficeQueryService.cs` + `SqliteStatusQueryService.cs`), with
+the Python clamp mirrors in `cbdb_parity/avalonia_*.py` and the
+access bridges aligned. The replay scan now PASSES this case
+end-to-end at 40_621 / 40_621 / 0 mismatch — the full Song result
+set fits within the new cap and matches on both backends. Original
+entry preserved below for reference.
+
+---
+
 ### entry_all_jinshi_general_song — LIMIT-cap truncation + no ORDER BY (NOT semantic divergence)
 
 - **First observed**: 2026-05-28 on Datadump SHA `ed294faed44b`,
