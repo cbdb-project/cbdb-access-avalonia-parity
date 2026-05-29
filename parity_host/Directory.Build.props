@@ -21,14 +21,25 @@
   </PropertyGroup>
 
   <!--
-    Fail fast if AVALONIA_REPO is not set, so the contributor sees a
-    helpful message instead of an opaque path-resolution error from
-    later <ProjectReference> lookups.
+    Fail fast with a clear message in three bad-state cases:
+      (a) AVALONIA_REPO unset entirely;
+      (b) AVALONIA_REPO points somewhere that has no Cbdb.App.Core
+          (e.g. wrong checkout, renamed dir, stale value left over
+          after relocating the upstream repo);
+      (c) same for Cbdb.App.Data.
+    Without these the build degrades into MSBuild warning + CS0234
+    namespace errors which give no hint that the env var is wrong.
   -->
   <Target Name="_ValidateAvaloniaRepo" BeforeTargets="PrepareForBuild">
     <Error
       Text="AVALONIA_REPO env var is not set. Set it to a clone of cbdb-desktop-app (see parity_host/README.md)."
       Condition="'$(AvaloniaRepo)' == ''" />
+    <Error
+      Text="AVALONIA_REPO is set to '$(AvaloniaRepo)' but Cbdb.App.Core/Cbdb.App.Core.csproj does not exist there. Point AVALONIA_REPO at a valid cbdb-desktop-app checkout (see parity_host/README.md)."
+      Condition="'$(AvaloniaRepo)' != '' and !Exists('$(AvaloniaRepo)/Cbdb.App.Core/Cbdb.App.Core.csproj')" />
+    <Error
+      Text="AVALONIA_REPO is set to '$(AvaloniaRepo)' but Cbdb.App.Data/Cbdb.App.Data.csproj does not exist there. Point AVALONIA_REPO at a valid cbdb-desktop-app checkout (see parity_host/README.md)."
+      Condition="'$(AvaloniaRepo)' != '' and !Exists('$(AvaloniaRepo)/Cbdb.App.Data/Cbdb.App.Data.csproj')" />
   </Target>
 
 </Project>
