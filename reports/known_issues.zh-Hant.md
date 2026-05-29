@@ -58,49 +58,41 @@
 
 ## 目前已豁免
 
-### office_basic — Avalonia 引用不存在的 `pto.c_appt_type_code`
-
-- **首次發現**: 2026-05-28,Datadump SHA `ed294faed44b` (cbdb_data_20260527.tar.gz)
-- **側別**: Avalonia
-- **類別**: Avalonia 缺口(schema 漂移)
-- **描述**: `cbdb-desktop-app/Cbdb.App.Data/SqliteOfficeQueryService.cs:307`
-  SELECT 了 `pto.c_appt_type_code`,而第 365 行的 JOIN 也讀取它。
-  但 `POSTED_TO_OFFICE_DATA` 表上只有 `c_appt_code`。在真實 CBDB
-  資料上這個查詢會丟出
-  `sqlite3.OperationalError: no such column: pto.c_appt_type_code`,
-  所以 office-pair smoke 測試完全無法跑 Avalonia 那一側。這正是
-  parity 框架設計用來捕捉的那一類發現 — Avalonia 程式碼引用了
-  正式版 MySQL Datadump 匯出的 CBDB SQLite 中**並不存在**的欄位。
-- **根本原因**: Avalonia 的提交歷史很可能把 Avalonia 查詢裡的
-  `c_appt_code` 改名為 `c_appt_type_code`,卻沒有在 SQLite 匯出端做
-  相應改名(SQLite 端仍從 MySQL 的 `c_appt_code` 推導)。又或者該
-  改名是為了某個未真正落地的 schema migration 而做的預先動作。
-- **豁免理由**: 這是個真正的 Avalonia 缺陷,需要在 `cbdb-desktop-app`
-  上游修復。此處豁免可以避免 parity 閘門因 office_basic 而長期變紅,
-  同時上游修復處於進行中。
-- **豁免至**: Avalonia `SqliteOfficeQueryService.cs` 改為 SELECT 實際
-  存在的欄位(`c_appt_code`),或 SQLite 匯出層加入別名。
-
-### postings_basic — Avalonia 引用不存在的 `pto.c_appt_type_code`
+### office_basic / postings_basic / GroupPeople — Python 框架讀不了內插 `$@"…{appointmentCodeExpr}…"` SQL
 
 - **首次發現**: 2026-05-28,Datadump SHA `ed294faed44b`
-- **側別**: Avalonia
-- **類別**: Avalonia 缺口(schema 漂移)
-- **描述**: `cbdb-desktop-app/Cbdb.App.Data/SqlitePersonBrowserService.cs`
-  的 GetPostingsAsync 在
-  `LEFT JOIN APPOINTMENT_CODES appt ON appt.c_appt_code = pto.c_appt_type_code`
-  中 SELECT 了 `pto.c_appt_type_code`。與 `office_basic` 是同一個
-  上游缺陷: schema 上的欄位是 `pto.c_appt_code`,而非
-  `pto.c_appt_type_code`。在真實 CBDB SQLite 上會丟出
-  `sqlite3.OperationalError: no such column: pto.c_appt_type_code`,
-  所以 postings-pair 測試完全無法跑 Avalonia 那一側。
-- **根本原因**: 與上方 office_basic 條目完全相同的改名不一致。
-  上游修一次提交就能同時解決兩者。
-- **豁免理由**: 真正的 Avalonia 缺陷,需上游修復。
-  `tests/test_phase4_postings_pair.py` 內建了自動跳過模式 —
-  捕捉到該 OperationalError 時就 skip,並指向本檔。
-- **豁免至**: 與 office_basic 相同 — Avalonia 改為 SELECT
-  `c_appt_code`,或 SQLite 匯出層加入別名。
+- **側別**: 框架(Python 鏡像層)
+- **類別**: 鏡像缺口 — **並非** Avalonia bug
+- **描述**: `cbdb-desktop-app/Cbdb.App.Data/SqliteOfficeQueryService.cs`、
+  `SqlitePersonBrowserService.cs` (`GetPostingsAsync`)、以及
+  `SqliteGroupPeopleService.cs` 全部都用 C# **內插**逐字字串
+  (`$@"…appt.c_appt_code = {appointmentCodeExpr}…"`)構造
+  POSTED_TO_OFFICE_DATA SQL,其中 `appointmentCodeExpr` 由
+  `SqliteSchemaCompatibility.GetPostingAppointmentCodeExpressionAsync`
+  在執行時計算 — 它在執行時讀取 SQLite schema,挑選實際存在的
+  `pto.c_appt_code` 或 `pto.c_appt_type_code`。所以**真正的 C#
+  程式碼並沒有 bug** — 它在執行時處理兩種欄位名變體。
+- **為什麼框架還是看到它壞**: Python parity 鏡像
+  (`cbdb_parity.avalonia_query_sql.extract_sql_blocks`)
+  刻意排除帶 `$@"…"` 內插的區塊,因為它們的 `{placeholder}`
+  替換項在 C# 執行時才確定 — 把它們當可執行 SQL 回傳會破壞
+  下游 sqlite3 / pyodbc 呼叫端。所以 postings / office /
+  GroupPeople 的 SQL 抽取會回傳空,相依測試丟出
+  `LookupError` ("no SQL block … contains …")。先前記錄的
+  `sqlite3.OperationalError: no such column` 說法是錯的 —
+  那是我們先前一次誤導性「上游修復」嘗試的後果,我們把欄位名
+  硬編碼,反而擊敗了執行時 shim。
+- **根本原因**: parity 框架「從 C# 抽 SQL 再用 Python sqlite3
+  跑」的方法,無法重現 C# 用 schema 內省在執行時決定 SQL 的
+  程式路徑。
+- **豁免理由**: 不是 Avalonia bug — 上游沒有需要修的。
+  正確的解法是 Phase 5(透過 `Cbdb.App.ParityHost` 跑真正的 C#),
+  完全繞過 SQL 抽取,拿到執行時解析後的字串。Phase 5 落地之前,
+  受影響的三個測試(`tests/test_phase3d_office_pair.py`、
+  `tests/test_phase4_postings_pair.py`,以及 `office-*` 掃描案例)
+  捕捉 LookupError 自動跳過。
+- **豁免至**: `Cbdb.App.ParityHost` (Phase 5) 落地並把受影響的
+  測試切換過去。
 
 ### kinship_expanded_network — Avalonia GetExpandedKinshipsAsync 的 Python 移植被延後
 

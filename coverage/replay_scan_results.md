@@ -24,13 +24,33 @@ Last run: **2026-05-28**, Datadump SHA `ed294faed44b…`.
 ## Tally
 
 - **Passed**: 4/10
-- **Skipped**: 5/10 (documented gaps in `reports/known_issues.md`)
-- **xfail**: 1/10 (LIMIT-cap truncation; documented)
+- **Skipped**: 5/10
+- **xfail**: 1/10
 
-The skipped cases all map to **Avalonia upstream gaps** (`AddrField`,
-empty-codes picker contract, LIMIT cap) that this harness deliberately
-does NOT patch — it detects and documents, and re-arms automatically
-when upstream lands the corresponding changes.
+Breakdown of the 5 skips by root cause:
+
+- **Avalonia upstream gap (3)**: `entry/kaifeng_yin_general_900_1100_indexyears`,
+  `entry/kaifeng_yin_general_900_1100_entryyears`,
+  `entry/kaifeng_anyentry_900_1100_indexyears` — `EntryQueryRequest`
+  has no `AddrField` switch, so the Access input
+  `addr_field='person'` has no Avalonia analogue. Re-arms when
+  upstream adds the field.
+- **Parity-bridge semantic mismatch (2)**: `status/empty_codes`
+  and `office/empty_codes` — Avalonia drops the IN-filter on empty
+  codes and runs unfiltered; cbdb_replay's picker contract returns
+  empty. Both interpretations are internally consistent; the
+  bridge cannot replay both. Documented in
+  `cbdb_parity/access_{status,office}_query._avalonia_request_to_replay_inputs`.
+
+The xfail (`entry/all_jinshi_general_song`) is a LIMIT-cap
+truncation: cbdb_replay returns ~40k Song rows; Avalonia caps at
+10_000. The dynasty-filter probe verifies the semantics are aligned
+when results fit within the cap.
+
+This harness deliberately does NOT patch any of the above — it
+detects and documents, and re-arms automatically when each gap is
+addressed (upstream change, bridge extension, or
+`Cbdb.App.ParityHost` for the SQL-extraction class of issues).
 
 ## Dynasty-filter probe (2026-05-28)
 
