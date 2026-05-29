@@ -145,12 +145,12 @@ def test_build_sql_keyword_blank_is_null() -> None:
 
 
 def test_build_sql_limit_clamped() -> None:
-    """C# uses Math.Clamp(limit, 1, 100000) (bumped from 10000)."""
+    """C# uses Math.Clamp(limit, 1, 10000)."""
     _sql, params = _build_entry_query_sql(
         _csharp_params_to_sqlite(_MINIMAL_TEMPLATE),
-        EntryQueryRequest(limit=999999),
+        EntryQueryRequest(limit=99999),
     )
-    assert params["limit"] == 100000
+    assert params["limit"] == 10000
     _sql, params = _build_entry_query_sql(
         _csharp_params_to_sqlite(_MINIMAL_TEMPLATE),
         EntryQueryRequest(limit=0),

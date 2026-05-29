@@ -16,6 +16,37 @@ The full plan lives in `WORK_PLAN.md` (English) and `WORK_PLAN.zh-CN.md`
 (Chinese). The Chinese version is authoritative when project decisions were
 made in Chinese.
 
+## Scope contract — TEST ONLY, NEVER MODIFY OTHER REPOS
+
+This harness's responsibility ends at **detection**. AI assistants and
+human contributors MUST NOT:
+
+- Edit files in `$AVALONIA_REPO` (`cbdb-desktop-app`) or any of the
+  other four referenced external repos.
+- Commit on, or push to, any of those repos' branches — local or
+  remote.
+- Send pull requests on behalf of this harness's work.
+
+When a parity test fails because of an upstream Avalonia bug, the
+correct response is:
+
+1. **Don't fix it here.** Re-arm the auto-skip pattern in the failing
+   test, catching the specific OperationalError (or whatever symptom)
+   and `pytest.skip()` with a pointer to `reports/known_issues.md`.
+2. **Record the divergence** in `reports/known_issues.md` (and the
+   `.zh-Hant.md` mirror) with a `Suppress until …` clause naming the
+   upstream condition that would re-arm the test.
+3. **Hand the report off** to the upstream maintainer team out-of-band.
+   The parity report file itself is the artifact that travels.
+
+The Python mirror layer in `cbdb_parity/avalonia_*.py` mirrors what
+upstream C# **actually does** at HEAD — not what we wish it would do.
+If the C# clamps `LIMIT` at 10,000, the Python mirror clamps at 10,000.
+Drift between mirror and reality is itself a bug for the parity
+harness to surface (and the eventual `Cbdb.App.ParityHost` route in
+Phase 5 eliminates the drift surface entirely by invoking the real
+C# directly).
+
 ## External resources
 
 Configured in `.env` (see `.env.sample` for the full schema and key list).

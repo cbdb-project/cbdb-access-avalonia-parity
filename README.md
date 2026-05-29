@@ -4,6 +4,18 @@ Differential testing harness comparing CBDB Avalonia desktop queries against
 the CBDB Access automated test results, ensuring both stacks return identical
 results when fed from the same Datadump.
 
+> **Scope contract**: this repository is a **detection / parity test
+> harness**. It surfaces and documents Avalonia ↔ Access disagreements
+> via `reports/known_issues.md`; it **MUST NOT modify the upstream
+> Avalonia codebase** (`cbdb-desktop-app`) or any other repository.
+> Even when the parity test makes a bug obvious, the fix belongs to
+> the upstream team that owns that codebase. The right action chain
+> here is: (1) write/run the parity test, (2) record the divergence in
+> `reports/known_issues.md` with a `Suppress until …` clause, (3) let
+> the test skip gracefully until upstream patches. Cross-repo PRs are
+> out of scope for this harness; file them by hand from the upstream
+> repo if needed.
+
 ## What this repo does
 
 For **every query feature** implemented in the

@@ -1,6 +1,13 @@
 # 已知差異 — 已從閘門條件中豁免
 
 > 繁體中文版。權威版本仍為 [`known_issues.md`](known_issues.md)；本檔僅作為閱讀輔助，若兩份內容有出入請以英文版為準。
+>
+> **範圍提醒**: 本倉庫是一個**檢測 / parity 框架**。它的職責是把
+> Avalonia ↔ Access 不一致暴露出來、在這裡記錄、並讓 parity 閘門
+> 優雅地跳過。**Avalonia 程式碼的修復屬於上游
+> `cbdb-desktop-app` 倉庫**，不在此處。即便 parity 測試讓 bug
+> 一目了然，本倉庫**不應**修改 Avalonia 源碼。下面的條目維護到
+> 上游維護者修補為止。
 
 本檔列出 Access ↔ Avalonia 之間，差異測試框架已經發現並分析過、且
 維護者已決定後續執行**不應**阻擋 parity 閘門的項目。
@@ -130,16 +137,6 @@
 - **豁免理由**: 沒有可比的對象。一旦 Avalonia 新增人口統計聚合,
   本條目應被一個配對測試取代。
 - **豁免至**: Avalonia 新增人口統計聚合的服務或方法。
-
-### [已解決 2026-05-28] entry_all_jinshi_general_song
-
-cbdb-desktop-app 的 LIMIT 上限已從 10_000 提升到 100_000
-(三個 Sqlite*QueryService 都改了),所有後續 Python clamp
-鏡像也同步調整。replay scan 中該 case 現在通過 40_621 /
-40_621 / 0 mismatch,完整列出原始結果集無截斷。原始條目保留於下,
-作為歷史紀錄。
-
----
 
 ### entry_all_jinshi_general_song — LIMIT 截斷 + 缺 ORDER BY(**不是**語意分歧)
 

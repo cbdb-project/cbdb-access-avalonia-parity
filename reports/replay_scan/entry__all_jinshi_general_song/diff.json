@@ -1,0 +1,22 @@
+{
+  "datadump_sha": "ed294faed44b36e80169cae8815f83d9d9c5ca3cdb79520c8d058383ad52eb43",
+  "generated_at": "2026-05-29T06:27:34.536782+00:00",
+  "only_in_access": [],
+  "only_in_avalonia": [],
+  "query_id": "entry__all_jinshi_general_song",
+  "request": {
+    "case_id": "all_jinshi_general_song",
+    "category": "entry",
+    "replay_inputs": "EntryQueryInputs(entry_codes=None, addr_ids=None, addr_field='person', include_subunits=False, use_xy_radius=False, year_mode='dynasty', from_year=None, to_year=None, from_dynasty=15, to_dynasty=15, from_dynasty_begin=960, to_dynasty_end=1279)"
+  },
+  "stats": {
+    "matches": true,
+    "rows_access": 40621,
+    "rows_avalonia": 40621,
+    "rows_matching": 40621,
+    "rows_only_in_access": 0,
+    "rows_only_in_avalonia": 0,
+    "rows_value_mismatch": 0
+  },
+  "value_mismatches": []
+}

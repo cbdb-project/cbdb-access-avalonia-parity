@@ -1,0 +1,22 @@
+{
+  "datadump_sha": "ed294faed44b36e80169cae8815f83d9d9c5ca3cdb79520c8d058383ad52eb43",
+  "generated_at": "2026-05-29T06:52:05.729156+00:00",
+  "only_in_access": [],
+  "only_in_avalonia": [],
+  "query_id": "status__status40_kaifeng_900_1100",
+  "request": {
+    "case_id": "status40_kaifeng_900_1100",
+    "category": "status",
+    "replay_inputs": "StatusQueryInputs(status_codes=[40], addr_ids=[100658], include_subunits=False, use_xy_radius=False, xy_narrow=True, year_mode='index', from_year=900, to_year=1100, from_dynasty=-1, to_dynasty=-1, from_dynasty_begin=None, to_dynasty_end=None)"
+  },
+  "stats": {
+    "matches": true,
+    "rows_access": 270,
+    "rows_avalonia": 270,
+    "rows_matching": 270,
+    "rows_only_in_access": 0,
+    "rows_only_in_avalonia": 0,
+    "rows_value_mismatch": 0
+  },
+  "value_mismatches": []
+}

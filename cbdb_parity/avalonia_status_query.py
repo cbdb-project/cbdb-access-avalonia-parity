@@ -127,7 +127,7 @@ def _build_status_query_sql(
         "useIndexYear": 1 if request.use_index_year_range else 0,
         "indexYearFrom": min(request.index_year_from, request.index_year_to),
         "indexYearTo": max(request.index_year_from, request.index_year_to),
-        "limit": max(1, min(request.limit, 100000)),
+        "limit": max(1, min(request.limit, 10000)),
     }
     for i, c in enumerate(request.status_codes):
         params[f"statusCode{i}"] = c
@@ -145,12 +145,6 @@ def status_query(
     avalonia_data_dir: Path,
 ) -> list[dict[str, Any]]:
     """Execute the Avalonia status query against `sqlite_path`."""
-    # Picker-contract short-circuit (mirrors the upstream C# guard at
-    # SqliteStatusQueryService.QueryAsync): empty status_codes ⇒ no
-    # rows. Without this, the downstream SQL drops the IN-filter and
-    # runs unfiltered.
-    if not request.status_codes:
-        return []
     cs_path = avalonia_data_dir / "SqliteStatusQueryService.cs"
     template = _load_query_async_sql(cs_path)
     sql, params = _build_status_query_sql(template, request)

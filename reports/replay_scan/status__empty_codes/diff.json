@@ -1,0 +1,22 @@
+{
+  "datadump_sha": "ed294faed44b36e80169cae8815f83d9d9c5ca3cdb79520c8d058383ad52eb43",
+  "generated_at": "2026-05-29T06:27:37.828823+00:00",
+  "only_in_access": [],
+  "only_in_avalonia": [],
+  "query_id": "status__empty_codes",
+  "request": {
+    "case_id": "empty_codes",
+    "category": "status",
+    "replay_inputs": "StatusQueryInputs(status_codes=None, addr_ids=None, include_subunits=False, use_xy_radius=False, xy_narrow=True, year_mode='none', from_year=None, to_year=None, from_dynasty=-1, to_dynasty=-1, from_dynasty_begin=None, to_dynasty_end=None)"
+  },
+  "stats": {
+    "matches": true,
+    "rows_access": 0,
+    "rows_avalonia": 0,
+    "rows_matching": 0,
+    "rows_only_in_access": 0,
+    "rows_only_in_avalonia": 0,
+    "rows_value_mismatch": 0
+  },
+  "value_mismatches": []
+}

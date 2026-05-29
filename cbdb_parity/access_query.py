@@ -177,21 +177,10 @@ def _avalonia_request_to_replay_inputs(
 
     addr_ids = list(request.place_ids) if request.place_ids else None
 
-    # AddrField passthrough: Avalonia's "entry" maps directly to
-    # cbdb_replay's "entry"; Avalonia's "person" maps to cbdb_replay's
-    # "person". Comparison is case-insensitive to mirror the upstream
-    # C# `StringComparison.OrdinalIgnoreCase` check; any other value
-    # falls back to "entry".
-    addr_field_replay: str = (
-        "person"
-        if (request.addr_field or "").casefold() == "person"
-        else "entry"
-    )
-
     return EntryQueryInputs(
         entry_codes=entry_codes_int,
         addr_ids=addr_ids,
-        addr_field=addr_field_replay,  # type: ignore[arg-type]
+        addr_field="entry",
         include_subunits=request.include_subordinate_units,
         use_xy_radius=False,
         year_mode=year_mode,  # type: ignore[arg-type]
@@ -301,7 +290,7 @@ def entry_query_access(
             r.get("person_id") if r.get("person_id") is not None else -1,
             r.get("sequence") if r.get("sequence") is not None else -1,
         ))
-        return combined[: max(1, min(request.limit, 100000))]
+        return combined[: max(1, min(request.limit, 10000))]
     return _entry_query_access_single(
         mdb_path, request, access_tests_repo=access_tests_repo
     )
@@ -374,9 +363,8 @@ def _entry_query_access_single(
 
     records = df.to_dict("records")
 
-    # Avalonia clamps limit to [1, 100000] (bumped from 10000 in
-    # cbdb-desktop-app commit c94157d); mirror that contract.
-    effective_limit = max(1, min(request.limit, 100000))
+    # Avalonia clamps limit to [1, 10000]; mirror that contract.
+    effective_limit = max(1, min(request.limit, 10000))
 
     def _sort_key(r: dict[str, Any]) -> tuple[Any, ...]:
         code = r.get("c_entry_code")

@@ -50,9 +50,6 @@ class EntryQueryRequest:
     entry_year_to: int = 0
     dynasty_ids: Sequence[int] = ()
     limit: int = 5000
-    # "entry" filters by ed.c_entry_addr_id; "person" filters by
-    # b.c_index_addr_id. Mirrors the upstream EntryQueryRequest.AddrField.
-    addr_field: str = "entry"
 
 
 # The 35 columns (in order) that `SqliteEntryQueryService.QueryAsync`
@@ -117,29 +114,17 @@ def _build_entry_query_sql(
         sql += f"\n  AND ed.c_entry_code IN ({codes_in})"
 
     # 3. place_id IN (...) — plain or subordinate-units variant.
-    # AddrField picks which column the IN-filter targets:
-    #   "person" → b.c_index_addr_id  (person's index address)
-    #   "entry"  → ed.c_entry_addr_id (the entry's own address)
-    # Comparison is case-insensitive to match the upstream C# code
-    # (`StringComparison.OrdinalIgnoreCase` in SqliteEntryQueryService).
-    # Anything other than "person" is treated as "entry" (preserves
-    # the historical default and matches the upstream C# fallback).
     if request.place_ids:
-        addr_column = (
-            "b.c_index_addr_id"
-            if (request.addr_field or "").casefold() == "person"
-            else "ed.c_entry_addr_id"
-        )
         place_in = ", ".join(f":placeId{i}" for i in range(len(request.place_ids)))
         if request.include_subordinate_units:
             sql += (
-                f"\n  AND ({addr_column} IN ({place_in}) "
+                f"\n  AND (ed.c_entry_addr_id IN ({place_in}) "
                 f"OR EXISTS (SELECT 1 FROM ZZZ_BELONGS_TO bt "
-                f"WHERE bt.c_addr_id = {addr_column} "
+                f"WHERE bt.c_addr_id = ed.c_entry_addr_id "
                 f"AND bt.c_belongs_to IN ({place_in})))"
             )
         else:
-            sql += f"\n  AND {addr_column} IN ({place_in})"
+            sql += f"\n  AND ed.c_entry_addr_id IN ({place_in})"
 
     # 4. trailing ORDER BY + LIMIT.
     # Faithful replay: keep Avalonia's exact ORDER BY. The Access bridge
@@ -159,7 +144,7 @@ def _build_entry_query_sql(
         "useEntryYear": 1 if request.use_entry_year_range else 0,
         "entryYearFrom": min(request.entry_year_from, request.entry_year_to),
         "entryYearTo": max(request.entry_year_from, request.entry_year_to),
-        "limit": max(1, min(request.limit, 100000)),
+        "limit": max(1, min(request.limit, 10000)),
     }
     for i, c in enumerate(request.entry_codes):
         params[f"entryCode{i}"] = c

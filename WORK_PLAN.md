@@ -1,5 +1,31 @@
 # Work Plan
 
+## 0. Scope contract (read first)
+
+This repository is a **detection / parity test harness**. Every
+contributor — human or agent — operates under the following rule:
+
+- We surface Avalonia ↔ Access disagreements, document them in
+  `reports/known_issues.md`, and let the parity gate skip them via
+  `Suppress until …` clauses.
+- We **do not modify the upstream Avalonia codebase**
+  (`cbdb-desktop-app`) or any other repository — neither locally nor
+  by pushing branches. Even when a parity test makes a bug obvious,
+  the fix belongs to the team that owns that codebase.
+- When a parity test fails because of a documented upstream bug, the
+  resolution is **always**: re-arm the auto-skip, link the
+  `known_issues.md` entry, raise the issue with the upstream team
+  separately. Never patch the other repo from here.
+- The Python mirror layer in `cbdb_parity/avalonia_*.py` mirrors what
+  the upstream C# **actually does** at HEAD — not what we wish it
+  would do. If C# clamps `LIMIT` at 10,000, the Python mirror clamps
+  at 10,000.
+
+The companion `cbdb-desktop-app` repo on the user's machine is
+treated as a read-only reference for SQL extraction. Local edits to
+that tree, and pushes to any of its remotes, are explicitly
+out-of-scope for any /goal directed at this repository.
+
 ## 1. Objective
 Build an independent comparison harness in `cbdb-access-avalonia-parity` that, for **every query feature** in the CBDB Avalonia desktop app (`cbdb-desktop-app`), runs the equivalent query against a CBDB Access stack and diffs the results. The harness must (a) reuse the test-design ideas from `cbdb-user-mdb-tests`, (b) feed both stacks from the **same** Datadump so any difference is logic, not data, and (c) report each Access ↔ Avalonia disagreement with a root cause.
 

@@ -151,15 +151,16 @@ def _translate_entry_to_avalonia(replay_inputs: Any):
     EntryQueryRequest. Returns (request, skip_reason)."""
     from cbdb_parity.avalonia_query import EntryQueryRequest
 
-    # AddrField passthrough: Avalonia's EntryQueryRequest now exposes
-    # the same 'entry' / 'person' switch that Access has (see
-    # EntryQueryRequest.AddrField and SqliteEntryQueryService.cs
-    # PlaceIds block). Any other value falls back to 'entry'.
-    addr_field = (
-        "person"
-        if getattr(replay_inputs, "addr_field", None) == "person"
-        else "entry"
-    )
+    # Avalonia's entry query filters by ENTRY addresses, not person
+    # addresses; if the Access input uses addr_field='person', no
+    # equivalent Avalonia call exists. This repo only DETECTS the
+    # gap; adding `AddrField` belongs to the upstream Avalonia repo.
+    if replay_inputs.addr_ids and getattr(replay_inputs, "addr_field", None) == "person":
+        return None, (
+            "Avalonia EntryQueryRequest only supports entry-address filtering "
+            "(`place_ids` maps to `entry_addr_id`); the Access input uses "
+            "`addr_field='person'` which has no Avalonia analogue."
+        )
 
     use_index = replay_inputs.year_mode == "index"
     use_entry = replay_inputs.year_mode == "entry"
@@ -174,7 +175,6 @@ def _translate_entry_to_avalonia(replay_inputs: Any):
     return (EntryQueryRequest(
         entry_codes=tuple(str(c) for c in (replay_inputs.entry_codes or ())),
         place_ids=tuple(replay_inputs.addr_ids or ()),
-        addr_field=addr_field,
         include_subordinate_units=bool(getattr(replay_inputs, "include_subunits", False)),
         use_index_year_range=use_index,
         index_year_from=int(replay_inputs.from_year or 0) if use_index else 0,
@@ -183,10 +183,7 @@ def _translate_entry_to_avalonia(replay_inputs: Any):
         entry_year_from=int(replay_inputs.from_year or 0) if use_entry else 0,
         entry_year_to=int(replay_inputs.to_year or 0) if use_entry else 0,
         dynasty_ids=dynasty_ids,
-        # Big enough to contain "all Song entries" (~40k) and similar
-        # broad-question test cases; cbdb_replay has no LIMIT so we
-        # raise Avalonia's to match.
-        limit=100000,
+        limit=5000,
     ), None)
 
 
@@ -207,7 +204,7 @@ def _translate_status_to_avalonia(replay_inputs: Any):
         index_year_from=int(replay_inputs.from_year or 0) if use_index else 0,
         index_year_to=int(replay_inputs.to_year or 0) if use_index else 0,
         dynasty_ids=dynasty_ids,
-        limit=100000,
+        limit=5000,
     ), None)
 
 
@@ -256,7 +253,7 @@ def _translate_office_to_avalonia(replay_inputs: Any):
         office_year_from=office_year_from,
         office_year_to=office_year_to,
         dynasty_ids=dynasty_ids,
-        limit=100000,
+        limit=5000,
     ), None)
 
 
@@ -278,14 +275,21 @@ def _safe_cases():
         return []
 
 
-# Previously this set contained `('entry', 'all_jinshi_general_song')`
-# because Avalonia's LIMIT cap was 10000 and cbdb_replay returned
-# ~40k rows for "all Song entries", making the truncated row sets
-# disjoint. The cap has since been raised to 100000 upstream (see
-# cbdb-desktop-app commit raising Math.Clamp from 1..10000 to
-# 1..100000 in the three Sqlite*QueryService classes), so the
-# full Song result set now fits and the case passes end-to-end.
-_XFAIL_LIMIT_TRUNCATION: set[tuple[str, str]] = set()
+# Cases that empirically do not fit a clean (≤10000 row) comparison
+# window. The dynasty-filter probe established that all three Avalonia
+# dynasty-filter variants align 100% with their cbdb_replay
+# counterparts when the result set fits within Avalonia's hardcoded
+# LIMIT cap of 10000. The all_jinshi case asks an unconstrained
+# "Song dynasty entries" question that produces ~40k rows on
+# cbdb_replay, so Avalonia's top-10k slice (sorted by entry_label,
+# c_year, c_personid, c_sequence) and cbdb_replay's unsorted slice
+# don't overlap. Marked xfail to record the finding without ringing
+# the test red — see coverage/replay_scan_results.md for the
+# probe table. This repo only DETECTS the issue; raising the cap
+# is an upstream Avalonia change.
+_XFAIL_LIMIT_TRUNCATION: set[tuple[str, str]] = {
+    ("entry", "all_jinshi_general_song"),
+}
 
 
 @pytest.mark.parametrize(
@@ -348,6 +352,10 @@ def test_replay_scan(
     avalonia_data = cfg.avalonia_repo / "Cbdb.App.Data"
     reports_dir = Path.cwd() / "reports" / "replay_scan"
 
+    # Catch the documented upstream Avalonia bug at the scan level
+    # too (office cases hit the same c_appt_type_code SQL as the
+    # Phase 3d office pair).
+    import sqlite3
     try:
         if category == "entry":
             from cbdb_parity.avalonia_query import entry_query
@@ -396,6 +404,25 @@ def test_replay_scan(
         # parity bug — skip the scan case with the bridge's own error
         # message so the scan summary shows it as a documented gap.
         pytest.skip(f"[{category}/{case_id}] Access bridge gap: {exc}")
+    except sqlite3.OperationalError as exc:
+        # Defensive: legacy framing of the c_appt_type_code issue
+        # before we understood it was a mirror-layer limitation, not
+        # an Avalonia bug. Kept for older deployments that haven't
+        # yet pulled the upstream runtime-schema-compat shim.
+        if "c_appt_type_code" in str(exc):
+            pytest.skip(
+                f"[{category}/{case_id}] Avalonia upstream bug "
+                f"(reports/known_issues.md office_basic): {exc}"
+            )
+        raise
+    except LookupError as exc:
+        # Documented mirror-layer limit (reports/known_issues.md
+        # office_basic): interpolated `$@"…"` SQL the extractor
+        # can't read. Re-arms once Phase 5 lands.
+        pytest.skip(
+            f"[{category}/{case_id}] Python mirror-layer limit "
+            f"(reports/known_issues.md office_basic): {exc}"
+        )
 
     diff = diff_rows(
         avalonia_rows, access_rows,

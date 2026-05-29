@@ -289,13 +289,24 @@ def _build_office_query_sql(
     else:
         dynasty_filter = ""
 
-    # 3. Substitute the four template slots into the extracted SQL body.
+    # 3. Substitute the template slots into the extracted SQL body.
+    #
+    # `{appointmentCodeExpr}` was added upstream as a runtime
+    # schema-compat shim (`SqliteSchemaCompatibility.
+    # GetPostingAppointmentCodeExpressionAsync`) that picks
+    # `pto.c_appt_code` or `pto.c_appt_type_code` depending on which
+    # column the SQLite has. The canonical Datadump schema has
+    # `c_appt_code`, so we mirror that. If a future schema only has
+    # `c_appt_type_code`, this hard-coded mirror diverges and needs
+    # updating (or the Phase 5 ParityHost route resolves it
+    # transparently by invoking the real C# shim).
     sql = (
         template
         .replace("{dynastyFilter}", dynasty_filter)
         .replace("{personPlaceMatchExpr}", person_place_match_expr)
         .replace("{officePlaceMatchExpr}", office_place_match_expr)
         .replace("{placeWorkflowExpr}", place_workflow_expr)
+        .replace("{appointmentCodeExpr}", "pto.c_appt_code")
     )
 
     # 4. Append office_code / place IN clauses (lines .cs:413-443).
@@ -343,7 +354,7 @@ def _build_office_query_sql(
             max(request.office_year_from, request.office_year_to)
             if request.use_office_year_range else None
         ),
-        "limit": max(1, min(request.limit, 100000)),
+        "limit": max(1, min(request.limit, 10000)),
     }
     for i, c in enumerate(request.office_codes):
         params[f"officeCode{i}"] = c
@@ -369,11 +380,6 @@ def office_query(
     `_OFFICE_RECORD_FIELDS`). The row order matches
     `OfficeQueryResult.Records` because we issue the same ORDER BY.
     """
-    # Picker-contract short-circuit (mirrors the upstream C# guard at
-    # SqliteOfficeQueryService.QueryAsync): empty office_codes ⇒ no
-    # rows.
-    if not request.office_codes:
-        return []
     cs_path = avalonia_data_dir / "SqliteOfficeQueryService.cs"
     template = _load_query_async_sql(cs_path)
     sql, params = _build_office_query_sql(template, request)

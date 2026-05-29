@@ -1,0 +1,22 @@
+{
+  "datadump_sha": "ed294faed44b36e80169cae8815f83d9d9c5ca3cdb79520c8d058383ad52eb43",
+  "generated_at": "2026-05-29T06:52:14.180619+00:00",
+  "only_in_access": [],
+  "only_in_avalonia": [],
+  "query_id": "office__office1_song",
+  "request": {
+    "case_id": "office1_song",
+    "category": "office",
+    "replay_inputs": "OfficeQueryInputs(office_codes=[1], year_filter=YearFilter(mode='dynasty', from_year=None, to_year=None, from_dynasty=15, to_dynasty=15, from_dynasty_begin=960, to_dynasty_end=1279), use_office_years=False, office_from_year=None, office_to_year=None)"
+  },
+  "stats": {
+    "matches": true,
+    "rows_access": 0,
+    "rows_avalonia": 0,
+    "rows_matching": 0,
+    "rows_only_in_access": 0,
+    "rows_only_in_avalonia": 0,
+    "rows_value_mismatch": 0
+  },
+  "value_mismatches": []
+}

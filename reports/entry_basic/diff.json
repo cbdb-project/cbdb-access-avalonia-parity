@@ -1,0 +1,23 @@
+{
+  "datadump_sha": "ed294faed44b36e80169cae8815f83d9d9c5ca3cdb79520c8d058383ad52eb43",
+  "generated_at": "2026-05-29T06:48:57.788029+00:00",
+  "only_in_access": [],
+  "only_in_avalonia": [],
+  "query_id": "entry_basic",
+  "request": {
+    "entry_codes": [
+      "36"
+    ],
+    "limit": 200
+  },
+  "stats": {
+    "matches": true,
+    "rows_access": 200,
+    "rows_avalonia": 200,
+    "rows_matching": 200,
+    "rows_only_in_access": 0,
+    "rows_only_in_avalonia": 0,
+    "rows_value_mismatch": 0
+  },
+  "value_mismatches": []
+}

@@ -105,13 +105,20 @@ def _avalonia_request_to_replay_inputs(
             "the picker writes selected IDs, not a free-text keyword."
         )
 
-    # Empty status_codes: both sides agree on empty results after
-    # the upstream Avalonia commit added the picker-contract
-    # short-circuit (SqliteStatusQueryService.QueryAsync now early-
-    # returns Array.Empty<…> when StatusCodes.Count == 0, matching
-    # cbdb_replay's behavior). Signal short-circuit to the caller.
+    # Empty status_codes is a genuine semantic divergence on the
+    # Avalonia side: it drops the `c_status_code IN (...)` filter
+    # entirely when no codes are bound and returns the full
+    # STATUS_DATA × LIMIT slice (~5000 rows on this dataset);
+    # cbdb_replay's picker contract treats "no codes selected" as
+    # "no rows". Bridge cannot replay both interpretations.
     if not request.status_codes:
-        return None
+        raise NotImplementedError(
+            "empty `status_codes`: Avalonia runs unfiltered (full "
+            "STATUS_DATA up to LIMIT) while cbdb_replay's picker "
+            "contract returns no rows. These are genuinely different "
+            "queries on an empty filter; bridge cannot replay both "
+            "interpretations."
+        )
 
     from cbdb_replay.lookatstatus import StatusQueryInputs
 
@@ -248,7 +255,7 @@ def status_query_access(
             r.get("person_id") if r.get("person_id") is not None else -1,
             r.get("sequence") if r.get("sequence") is not None else -1,
         ))
-        return combined[: max(1, min(request.limit, 100000))]
+        return combined[: max(1, min(request.limit, 10000))]
     return _status_query_access_single(
         mdb_path, request, access_tests_repo=access_tests_repo
     )
@@ -294,7 +301,7 @@ def _status_query_access_single(
 
     records = df.to_dict("records")
 
-    effective_limit = max(1, min(request.limit, 100000))
+    effective_limit = max(1, min(request.limit, 10000))
 
     def _sort_key(r: dict[str, Any]) -> tuple[Any, ...]:
         code = r.get("c_status_code")

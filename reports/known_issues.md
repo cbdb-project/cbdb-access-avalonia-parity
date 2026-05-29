@@ -1,5 +1,13 @@
 # Known parity issues — suppressed from the gate
 
+> **Scope reminder**: this repository is a **detection / parity harness**.
+> Its job is to surface Avalonia ↔ Access disagreements, document them
+> here, and let the parity gate skip them gracefully. **Fixes to the
+> Avalonia codebase belong to the upstream `cbdb-desktop-app`
+> repository**, not here. Even when the parity test makes the bug
+> obvious, this repo MUST NOT modify Avalonia sources. Entries below
+> are tracked here until the upstream maintainers patch them.
+
 This file lists Access/Avalonia disagreements that the harness has
 already surfaced and analysed, and which the maintainers have decided
 should NOT block the parity gate on subsequent runs.
@@ -54,74 +62,45 @@ The bottom of each entry adds:
 
 ## Currently suppressed
 
-### [RESOLVED 2026-05-28] office_basic / postings_basic — `c_appt_type_code` fixed upstream
-
-Both Avalonia services now reference the correct schema column
-(`pto.c_appt_code`). `tests/test_phase3d_office_pair.py` and
-`tests/test_phase4_postings_pair.py` pass end-to-end again. Auto-skip
-patterns have been removed from both tests. Two follow-on fixes
-landed alongside the upstream rename:
-
-- `cbdb_parity/access_postings.py`: also referenced the wrong column
-  name in the hand-mirrored Access SQL; corrected.
-- `cbdb_parity/access_postings.py`: added datetime → string coercion
-  for `created_date` / `modified_date` (Access ODBC returns native
-  `datetime.datetime` while SQLite returns the raw stored text;
-  dtype diffs were drowning the real-data diff).
-
-The historical bug description is preserved below for reference.
-
----
-
-### office_basic — Avalonia references non-existent `pto.c_appt_type_code`
-
-- **First observed**: 2026-05-28 on Datadump SHA `ed294faed44b` (cbdb_data_20260527.tar.gz)
-- **Side**: Avalonia
-- **Class**: Avalonia gap (schema drift)
-- **Description**: `cbdb-desktop-app/Cbdb.App.Data/SqliteOfficeQueryService.cs:307`
-  SELECTs `pto.c_appt_type_code` and the JOIN at line 365 reads it.
-  But `POSTED_TO_OFFICE_DATA` only has `c_appt_code`. The query
-  raises `sqlite3.OperationalError: no such column: pto.c_appt_type_code`
-  on real CBDB data, so the office-pair smoke test cannot execute
-  the Avalonia side at all. This is exactly the class of finding
-  the parity harness was designed to surface — Avalonia code
-  references a schema column that does not exist in the actual
-  CBDB SQLite emitted from the canonical MySQL Datadump.
-- **Root cause**: Avalonia commit history likely renamed
-  `c_appt_code` → `c_appt_type_code` in the Avalonia query without
-  the corresponding rename in the SQLite export side (which still
-  derives from MySQL's `c_appt_code`). Or the rename was speculative
-  for a future schema migration that didn't happen.
-- **Suppress rationale**: real Avalonia bug to be fixed upstream
-  in `cbdb-desktop-app`. Suppressing here prevents the parity gate
-  from being permanently red on office_basic while the upstream
-  fix is in flight.
-- **Suppress until**: Avalonia `SqliteOfficeQueryService.cs` SELECTs
-  the column that actually exists (`c_appt_code`) or the SQLite
-  export layer adds an alias. **RESOLVED 2026-05-28** — upstream
-  patched.
-
-### postings_basic — Avalonia references non-existent `pto.c_appt_type_code`
+### office_basic / postings_basic / GroupPeople — Python harness can't read interpolated `$@"…{appointmentCodeExpr}…"` SQL
 
 - **First observed**: 2026-05-28 on Datadump SHA `ed294faed44b`
-- **Side**: Avalonia
-- **Class**: Avalonia gap (schema drift)
-- **Description**: `cbdb-desktop-app/Cbdb.App.Data/SqlitePersonBrowserService.cs`
-  GetPostingsAsync SELECTs `pto.c_appt_type_code` via
-  `LEFT JOIN APPOINTMENT_CODES appt ON appt.c_appt_code = pto.c_appt_type_code`.
-  Same upstream bug as `office_basic`: the schema column is
-  `pto.c_appt_code`, not `pto.c_appt_type_code`. The query raises
-  `sqlite3.OperationalError: no such column: pto.c_appt_type_code`
-  on real CBDB SQLite, so the postings-pair test cannot execute the
-  Avalonia side at all.
-- **Root cause**: identical rename inconsistency to the office_basic
-  entry above. Fixing one upstream commit will resolve both.
-- **Suppress rationale**: real Avalonia bug to be fixed upstream.
-  Auto-skip pattern in `tests/test_phase4_postings_pair.py` catches
-  the OperationalError and skips with reference to this file.
-- **Suppress until**: same fix as office_basic — Avalonia code
-  SELECTs `c_appt_code` or the SQLite export adds an alias.
-  **RESOLVED 2026-05-28** — upstream patched.
+- **Side**: harness (Python mirror layer)
+- **Class**: mirror gap — NOT an Avalonia bug
+- **Description**: `cbdb-desktop-app/Cbdb.App.Data/SqliteOfficeQueryService.cs`,
+  `SqlitePersonBrowserService.cs` (`GetPostingsAsync`), and
+  `SqliteGroupPeopleService.cs` all build their POSTED_TO_OFFICE_DATA
+  SQL via a C# **interpolated** verbatim string
+  (`$@"…appt.c_appt_code = {appointmentCodeExpr}…"`) where
+  `appointmentCodeExpr` is computed at runtime by
+  `SqliteSchemaCompatibility.GetPostingAppointmentCodeExpressionAsync`
+  — it introspects the SQLite schema and picks `pto.c_appt_code`
+  or `pto.c_appt_type_code` depending on which column actually
+  exists. So **the real C# code is NOT buggy** — it handles
+  both column-name variants at runtime.
+- **Why the harness sees it as broken anyway**: the Python
+  parity mirror (`cbdb_parity.avalonia_query_sql.extract_sql_blocks`)
+  deliberately excludes interpolated `$@"…"` blocks because their
+  `{placeholder}` substitutions are not valid raw SQL. So the
+  postings / office / GroupPeople SQL extraction returns no match,
+  and the dependent test raises `LookupError` ("no SQL block …
+  contains …"). The earlier-recorded
+  `sqlite3.OperationalError: no such column` framing was wrong —
+  it was an artifact of an earlier (now-reverted) misguided
+  upstream "fix" we attempted that hard-coded the column name and
+  defeated the runtime shim.
+- **Root cause**: the parity harness's "extract C# SQL and re-run
+  in Python sqlite3" approach can't replicate a C# code path that
+  decides part of the SQL at runtime via schema introspection.
+- **Suppress rationale**: not an Avalonia bug — nothing to fix
+  upstream. The right resolution is Phase 5 (run the real C# via
+  `Cbdb.App.ParityHost`) which sidesteps SQL extraction entirely
+  and gets the runtime-resolved string. Until Phase 5 lands, the
+  three affected tests (`tests/test_phase3d_office_pair.py`,
+  `tests/test_phase4_postings_pair.py`, and the `office-*` scan
+  cases) auto-skip on the LookupError.
+- **Suppress until**: `Cbdb.App.ParityHost` (Phase 5) lands and
+  the affected tests are switched over.
 
 ### [RESOLVED 2026-05-28] kinship_expanded_network — port landed
 
@@ -180,19 +159,6 @@ reference.
   paired test.
 - **Suppress until**: Avalonia adds a demographic-aggregation
   service or method.
-
-### [RESOLVED 2026-05-28] entry_all_jinshi_general_song — LIMIT cap raised upstream
-
-The cap that caused the original failure has been bumped from 10_000
-to 100_000 in cbdb-desktop-app (`SqliteEntryQueryService.cs` +
-`SqliteOfficeQueryService.cs` + `SqliteStatusQueryService.cs`), with
-the Python clamp mirrors in `cbdb_parity/avalonia_*.py` and the
-access bridges aligned. The replay scan now PASSES this case
-end-to-end at 40_621 / 40_621 / 0 mismatch — the full Song result
-set fits within the new cap and matches on both backends. Original
-entry preserved below for reference.
-
----
 
 ### entry_all_jinshi_general_song — LIMIT-cap truncation + no ORDER BY (NOT semantic divergence)
 

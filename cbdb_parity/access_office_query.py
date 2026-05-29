@@ -120,10 +120,9 @@ def _avalonia_request_to_replay_inputs(
         unsupported.append("include_subordinate_person_units")
     if request.include_subordinate_office_units and request.office_place_ids:
         unsupported.append("include_subordinate_office_units")
-    # Empty office_codes: both sides now agree on empty after the
-    # upstream Avalonia picker-contract short-circuit (see
-    # SqliteOfficeQueryService.QueryAsync). No need to flag it
-    # as unsupported.
+    if not request.office_codes:
+        unsupported.append("office_codes (empty — cbdb_replay returns no rows; "
+                          "Avalonia runs unfiltered)")
     # Multi-dynasty fan-out is handled in office_query_access; this
     # translator only sees the single-dy case.
     if request.dynasty_ids and len(request.dynasty_ids) > 1:
@@ -303,7 +302,7 @@ def office_query_access(
             r.get("sequence") if r.get("sequence") is not None else -1,
             r.get("office_address_id") if r.get("office_address_id") is not None else -1,
         ))
-        return combined[: max(1, min(request.limit, 100000))]
+        return combined[: max(1, min(request.limit, 10000))]
     return _office_query_access_single(
         mdb_path, request, access_tests_repo=access_tests_repo
     )
@@ -439,7 +438,7 @@ def _office_query_access_single(
                 row["c_office_addr_id"] = addr
                 expanded.append(row)
 
-    effective_limit = max(1, min(request.limit, 100000))
+    effective_limit = max(1, min(request.limit, 10000))
 
     def _sort_key(r: dict[str, Any]) -> tuple[Any, ...]:
         code = r.get("c_office_id")

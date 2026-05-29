@@ -1,0 +1,22 @@
+{
+  "datadump_sha": "ed294faed44b36e80169cae8815f83d9d9c5ca3cdb79520c8d058383ad52eb43",
+  "generated_at": "2026-05-29T06:27:26.715763+00:00",
+  "only_in_access": [],
+  "only_in_avalonia": [],
+  "query_id": "entry__kaifeng_yin_general_900_1100_indexyears",
+  "request": {
+    "case_id": "kaifeng_yin_general_900_1100_indexyears",
+    "category": "entry",
+    "replay_inputs": "EntryQueryInputs(entry_codes=[118], addr_ids=[100658], addr_field='person', include_subunits=False, use_xy_radius=False, year_mode='index', from_year=900, to_year=1100, from_dynasty=-1, to_dynasty=-1, from_dynasty_begin=None, to_dynasty_end=None)"
+  },
+  "stats": {
+    "matches": true,
+    "rows_access": 100,
+    "rows_avalonia": 100,
+    "rows_matching": 100,
+    "rows_only_in_access": 0,
+    "rows_only_in_avalonia": 0,
+    "rows_value_mismatch": 0
+  },
+  "value_mismatches": []
+}
