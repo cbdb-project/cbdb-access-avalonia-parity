@@ -172,6 +172,32 @@ def status_query(
     return rows
 
 
+def status_query_via_host(
+    sqlite_path: Path,
+    request: StatusQueryRequest,
+    *,
+    avalonia_repo: Path,
+) -> list[dict[str, Any]]:
+    """Execute the status query through `Cbdb.App.ParityHost` (real C#).
+
+    Phase 5b alternative to `status_query` above. Returns the same
+    shape (list of snake_case dicts) so the two backends can be
+    diffed row-by-row.
+
+    Per WORK_PLAN.md §Phase 5b: any divergence between this and
+    `status_query` is a Python-mirror bug, NOT an Avalonia bug.
+    """
+    from cbdb_parity.parity_host import invoke_parity_host
+
+    response = invoke_parity_host(
+        "status",
+        sqlite_path,
+        request,
+        avalonia_repo=avalonia_repo,
+    )
+    return list(response.get("records") or [])
+
+
 def status_query_field_names() -> tuple[str, ...]:
     return _STATUS_RECORD_FIELDS
 

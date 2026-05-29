@@ -393,6 +393,32 @@ def office_query(
     return rows
 
 
+def office_query_via_host(
+    sqlite_path: Path,
+    request: OfficeQueryRequest,
+    *,
+    avalonia_repo: Path,
+) -> list[dict[str, Any]]:
+    """Execute the office query through `Cbdb.App.ParityHost` (real C#).
+
+    Phase 5b alternative to `office_query` above. Returns the same
+    shape (list of snake_case dicts) so the two backends can be
+    diffed row-by-row.
+
+    Per WORK_PLAN.md §Phase 5b: any divergence between this and
+    `office_query` is a Python-mirror bug, NOT an Avalonia bug.
+    """
+    from cbdb_parity.parity_host import invoke_parity_host
+
+    response = invoke_parity_host(
+        "office",
+        sqlite_path,
+        request,
+        avalonia_repo=avalonia_repo,
+    )
+    return list(response.get("records") or [])
+
+
 def office_query_field_names() -> tuple[str, ...]:
     """Public accessor for the canonical column order."""
     return _OFFICE_RECORD_FIELDS

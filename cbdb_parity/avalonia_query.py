@@ -192,6 +192,37 @@ def entry_query(
     return rows
 
 
+def entry_query_via_host(
+    sqlite_path: Path,
+    request: EntryQueryRequest,
+    *,
+    avalonia_repo: Path,
+) -> list[dict[str, Any]]:
+    """Execute the entry query through `Cbdb.App.ParityHost` (real C#).
+
+    Phase 5b alternative to `entry_query` above (which mirrors the
+    upstream C# by extracting and re-executing the SQL in Python).
+    Returns the same shape — list of snake_case dicts — so the two
+    backends can be diffed row-by-row.
+
+    Per WORK_PLAN.md §Phase 5b: any divergence between this and
+    `entry_query` is a Python-mirror bug, NOT an Avalonia bug.
+
+    Requires the host binary to be built (run
+    `cbdb_parity.parity_host.build_parity_host` once). The wrapper
+    surfaces a `ParityHostError` if the host fails.
+    """
+    from cbdb_parity.parity_host import invoke_parity_host
+
+    response = invoke_parity_host(
+        "entry",
+        sqlite_path,
+        request,
+        avalonia_repo=avalonia_repo,
+    )
+    return list(response.get("records") or [])
+
+
 def entry_query_field_names() -> tuple[str, ...]:
     """Public accessor for the canonical column order; used by Phase 3b's
     Access-side bridge to align column ordering."""
