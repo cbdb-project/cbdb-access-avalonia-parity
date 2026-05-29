@@ -64,9 +64,13 @@ _POSTING_ID_FIELDS: tuple[str, ...] = ()
 
 
 def _to_bool_or_none(value: Any) -> bool | None:
+    """Mirrors upstream `reader.GetInt32(N) == 1`. NOT a generic
+    truthiness check — see `cbdb_parity.avalonia_addresses` for the
+    rationale (CBDB may store sentinel values other than {0,1,None}).
+    """
     if value is None:
         return None
-    return bool(value)
+    return value == 1
 
 
 def _row_to_dict(r: tuple[Any, ...]) -> dict[str, Any]:

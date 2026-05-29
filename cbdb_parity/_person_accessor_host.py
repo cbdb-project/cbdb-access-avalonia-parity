@@ -55,6 +55,7 @@ def fetch_via_host_with_id_splice(
     avalonia_repo: Path,
     splice_sql: str | None = None,
     splice_field_names: tuple[str, ...] = (),
+    splice_verify: tuple[tuple[str, str], ...] = (),
 ) -> list[dict[str, Any]]:
     """Invoke the ParityHost for `service` and (optionally) splice
     additional ID columns back onto each row.
@@ -67,13 +68,26 @@ def fetch_via_host_with_id_splice(
         the accessor has no spliced IDs (e.g. possessions).
     splice_field_names: dict keys to attach the SELECT columns
         under. Length must equal the number of columns the SELECT
-        returns (validated at runtime).
+        returns (validated at runtime). Splice columns are
+        appended in this order at the end of the SELECT — see
+        `splice_verify` for the prefix used to align rows.
+    splice_verify: optional tuple of `(host_field_name,
+        splice_col_label)` pairs. When set, the splice SELECT MUST
+        return these columns FIRST (in this order), and each
+        spliced row's leading values must equal the corresponding
+        host row's host_field_name. Used by accessors whose
+        upstream ORDER BY has a known tied-column risk (e.g.
+        altnames: two rows can share (sequence, name_type,
+        name_chn) and the positional zip would silently misalign).
+        Codex round on Phase 5c-final flagged altnames as the
+        concrete case; this is the general guard.
 
     Raises
     ------
     RuntimeError if the splice row count differs from the host row
-    count — signals an ORDER BY drift between this module's splice
-    SQL and upstream.
+    count (ORDER BY drift), or if `splice_verify` is set and any
+    splice row's leading values don't match the corresponding host
+    row.
     """
     rows = invoke_person_accessor_via_host(
         service, sqlite_path, person_id, avalonia_repo=avalonia_repo,
@@ -93,15 +107,30 @@ def fetch_via_host_with_id_splice(
             f"SQL must filter and order identically to upstream "
             f"Get{service.capitalize()}Async."
         )
+
+    verify_count = len(splice_verify)
+    expected_splice_width = verify_count + len(splice_field_names)
     for splice in splice_rows:
-        if len(splice) != len(splice_field_names):
+        if len(splice) != expected_splice_width:
             raise RuntimeError(
                 f"{service}: splice SELECT returned {len(splice)} "
-                f"columns but {len(splice_field_names)} field names "
-                f"were declared."
+                f"columns but {expected_splice_width} were expected "
+                f"({verify_count} verify + {len(splice_field_names)} attach)."
             )
-    for row, splice in zip(rows, splice_rows, strict=True):
-        for name, value in zip(splice_field_names, splice, strict=True):
+    for i, (row, splice) in enumerate(zip(rows, splice_rows, strict=True)):
+        for j, (host_field, _splice_label) in enumerate(splice_verify):
+            host_value = row.get(host_field)
+            if host_value != splice[j]:
+                raise RuntimeError(
+                    f"{service}: splice row {i} drifted from host row — "
+                    f"verify field {host_field!r}: host={host_value!r} "
+                    f"sqlite={splice[j]!r}. The upstream ORDER BY has "
+                    f"tied columns; widen splice_verify or update the "
+                    f"splice SQL."
+                )
+        for name, value in zip(
+            splice_field_names, splice[verify_count:], strict=True,
+        ):
             row[name] = value
     return rows
 

@@ -59,10 +59,16 @@ def addresses_id_field_names() -> tuple[str, ...]:
 
 
 def _to_bool_or_none(value: Any) -> bool | None:
-    """Phase 4 access bridges still import this helper from here."""
+    """Phase 4 Access bridges still import this helper. Mirrors the
+    upstream C# reader pattern `reader.GetInt32(N) == 1` exactly —
+    NOT a generic Python truthiness check, because CBDB sometimes
+    stores sentinels other than {0,1,None} in tinyint-flavored
+    columns and the host's bool projection returns True only for
+    `== 1`.
+    """
     if value is None:
         return None
-    return bool(value)
+    return value == 1
 
 
 __all__ = [

@@ -21,10 +21,25 @@ _ALTNAME_RECORD_FIELDS: tuple[str, ...] = (
 )
 _ALTNAME_ID_FIELDS: tuple[str, ...] = ("name_type_code", "source_id")
 
+# Upstream ORDER BY (`sd:577`) is `c_sequence, c_alt_name_type_code,
+# c_alt_name_chn`. Ties on all three are possible in CBDB. To prevent
+# positional misalignment, the splice SELECT prefixes the verify
+# columns (`c_sequence`, `c_alt_name_chn`) — which the host already
+# exposes as `sequence` / `alt_name_chn` — and the helper asserts
+# those values match the host row before attaching the ID columns.
+# COALESCE on c_sequence mirrors the upstream C# reader's
+# `IsDBNull(0) ? 0 : GetInt32(0)` null-collapse so verify can compare
+# with the host's already-coalesced `sequence` field.
 _SPLICE_SQL = (
-    "SELECT a.c_alt_name_type_code, a.c_source FROM ALTNAME_DATA a "
+    "SELECT COALESCE(a.c_sequence, 0), a.c_alt_name_chn, "
+    "       a.c_alt_name_type_code, a.c_source "
+    "FROM ALTNAME_DATA a "
     "WHERE a.c_personid = :pid "
     "ORDER BY a.c_sequence, a.c_alt_name_type_code, a.c_alt_name_chn"
+)
+_ALTNAME_SPLICE_VERIFY: tuple[tuple[str, str], ...] = (
+    ("sequence", "c_sequence"),
+    ("alt_name_chn", "c_alt_name_chn"),
 )
 
 
@@ -43,6 +58,7 @@ def altnames_query(
         ),
         splice_sql=_SPLICE_SQL,
         splice_field_names=_ALTNAME_ID_FIELDS,
+        splice_verify=_ALTNAME_SPLICE_VERIFY,
     )
 
 
