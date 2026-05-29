@@ -70,17 +70,36 @@ def _assert_rows_equal(
 ) -> None:
     """Compare two row lists position-by-position, value-by-value.
 
-    Fails on the first divergence with a message that identifies
-    the row index AND the field. The `ignore_fields` allow-list is
-    for documented mirror gaps (e.g. fields that aren't yet ported).
+    Three drift classes asserted, all load-bearing:
+
+    1. **Row count drift**: list lengths must match.
+    2. **Schema drift** (codex 5b-r1 P2): after removing
+       `ignore_fields`, mirror row keys MUST equal host row keys.
+       Without this gate, set-intersection value comparison would
+       silently hide a key the mirror added or dropped vs the host.
+    3. **Value drift**: each shared cell must compare equal.
+
+    The `ignore_fields` set is the explicit allow-list for both the
+    schema check AND the value check — fields in it are excluded
+    from both directions. Add an entry only with a comment naming
+    the upstream C# null-coercion line (or other documented mirror
+    gap) it covers.
     """
     assert len(mirror_rows) == len(host_rows), (
         f"{label}: row count differs — mirror={len(mirror_rows)} "
         f"host={len(host_rows)}. Likely a LIMIT clamp or ORDER BY drift."
     )
     for i, (m, h) in enumerate(zip(mirror_rows, host_rows, strict=True)):
-        common_keys = (set(m) & set(h)) - ignore_fields
-        for key in common_keys:
+        mirror_keys = set(m) - ignore_fields
+        host_keys = set(h) - ignore_fields
+        assert mirror_keys == host_keys, (
+            f"{label}: row {i} schema drift — "
+            f"mirror_only={sorted(mirror_keys - host_keys)} "
+            f"host_only={sorted(host_keys - mirror_keys)}. "
+            f"Either fix the mirror to track the upstream record shape "
+            f"or extend ignore_fields with a rationale."
+        )
+        for key in mirror_keys:  # mirror_keys == host_keys here
             assert m[key] == h[key], (
                 f"{label}: row {i} field {key!r} differs — "
                 f"mirror={m[key]!r} host={h[key]!r}"
