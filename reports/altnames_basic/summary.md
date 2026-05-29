@@ -1,7 +1,7 @@
 # Query `altnames_basic` parity report
 
 **Verdict**: PASS
-**Generated**: 2026-05-29T06:49:04.117951+00:00
+**Generated**: 2026-05-29T09:18:10.133517+00:00
 **Datadump SHA**: `ed294faed44b36e80169cae8815f83d9d9c5ca3cdb79520c8d058383ad52eb43`
 
 ## Stats
