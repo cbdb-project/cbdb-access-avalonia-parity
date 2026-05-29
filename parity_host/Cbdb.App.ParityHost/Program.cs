@@ -53,9 +53,13 @@ internal static class Program
             var responseJson = service switch
             {
                 "entry"  => await DispatchEntryAsync(sqlitePath, requestBody),
+                "office" => await DispatchOfficeAsync(sqlitePath, requestBody),
+                "status" => await DispatchStatusAsync(sqlitePath, requestBody),
                 _        => throw new ArgumentException(
                               $"unknown service '{service}' "
-                              + "(supported: entry; more in later commits)"
+                              + "(supported: entry, office, status; "
+                              + "PersonBrowser/GroupPeople/PlaceLookup/DynastyLookup "
+                              + "in later commits)"
                           ),
             };
 
@@ -93,6 +97,40 @@ internal static class Program
         );
 
         var service = new SqliteEntryQueryService();
+        var result = await service.QueryAsync(sqlitePath, request);
+        return JsonSerializer.Serialize(result, _jsonOptions);
+    }
+
+    /// <summary>
+    /// Dispatch an Office query.
+    /// </summary>
+    private static async Task<string> DispatchOfficeAsync(
+        string sqlitePath, string requestBody)
+    {
+        var request = JsonSerializer.Deserialize<OfficeQueryRequest>(
+            requestBody, _jsonOptions
+        ) ?? throw new ArgumentException(
+            "office: request body could not be deserialised into OfficeQueryRequest"
+        );
+
+        var service = new SqliteOfficeQueryService();
+        var result = await service.QueryAsync(sqlitePath, request);
+        return JsonSerializer.Serialize(result, _jsonOptions);
+    }
+
+    /// <summary>
+    /// Dispatch a Status query.
+    /// </summary>
+    private static async Task<string> DispatchStatusAsync(
+        string sqlitePath, string requestBody)
+    {
+        var request = JsonSerializer.Deserialize<StatusQueryRequest>(
+            requestBody, _jsonOptions
+        ) ?? throw new ArgumentException(
+            "status: request body could not be deserialised into StatusQueryRequest"
+        );
+
+        var service = new SqliteStatusQueryService();
         var result = await service.QueryAsync(sqlitePath, request);
         return JsonSerializer.Serialize(result, _jsonOptions);
     }
