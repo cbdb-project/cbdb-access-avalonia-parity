@@ -1,96 +1,75 @@
-"""Python re-execution of Avalonia GetKinshipsAsync, non-expanded branch
-(Phase 4, Tier 2 per-person accessor #9).
+"""Phase 5c-final batch 2 — thin wrapper around GetKinshipsAsync
+(expandNetwork=false direct branch) via the ParityHost.
 
-GetKinshipsAsync(expandNetwork=true) does iterative graph traversal
-in C# that we do not replicate here — the pair test covers only the
-direct (expandNetwork=false) branch.
+`kin_code` spliced from KIN_DATA for Phase 4 diff keying. Splice
+ORDER BY mirrors SqlitePersonBrowserService.GetKinshipsAsync line
+1304: `ORDER BY kd.c_kin_id, kd.c_kin_code`.
 
-The SQL is duplicated in C# (one occurrence in GetKinshipsAsync's
-direct branch, one in LoadDirectKinshipEdgesAsync) — both blocks
-are byte-identical, so we dedupe before extracting.
+The dispatch service is `kinships` (same as 5d's expandNetwork=true
+case); we send `expand_network: false` so the host runs the direct
+branch.
 """
 
 from __future__ import annotations
 
-import re
 import sqlite3
 from pathlib import Path
 from typing import Any
 
-from cbdb_parity.avalonia_altnames import _join_display
-from cbdb_parity.avalonia_query_sql import extract_sql_blocks
+from cbdb_parity._person_accessor_host import resolve_avalonia_repo
+from cbdb_parity.parity_host import invoke_parity_host
 
 
 _KINSHIP_RECORD_FIELDS: tuple[str, ...] = (
-    "kin_person_id",   # kd.c_kin_id (IsDBNull → 0)
-    "kinship",         # JoinDisplay(kc.c_kinrel_chn, kc.c_kinrel)
-    "kin_name_chn",    # kin.c_name_chn
-    "kin_name",        # kin.c_name
-    "up_step",         # kc.c_upstep
-    "down_step",       # kc.c_dwnstep
-    "marriage_step",   # kc.c_marstep
-    "collateral_step", # kc.c_colstep
-    "source",          # JoinDisplay(src.c_title_chn, src.c_title)
-    "pages",           # kd.c_pages
-    "notes",           # kd.c_notes
+    "kin_person_id", "kinship", "kin_name_chn", "kin_name",
+    # `is_derived` is on the upstream PersonKinshipItem record but
+    # is always False for the direct branch (no derivation in
+    # expandNetwork=false). Access has no analogue, so it stays
+    # out of the Phase 4 compare tuple.
+    "up_step", "down_step", "marriage_step", "collateral_step",
+    "source", "pages", "notes",
 )
 _KINSHIP_ID_FIELDS: tuple[str, ...] = ("kin_code",)
 
 
-def _csharp_params_to_sqlite(sql: str) -> str:
-    return re.sub(r"\$([A-Za-z_][A-Za-z0-9_]*)", r":\1", sql)
-
-
-def _load_get_kinships_sql(cs_path: Path) -> str:
-    blocks = extract_sql_blocks(cs_path)
-    matches = sorted({b for b in blocks if "KIN_DATA kd" in b})
-    if len(matches) != 1:
-        raise LookupError(
-            f"expected exactly one unique kinship SQL block in {cs_path}; "
-            f"found {len(matches)}"
-        )
-    return matches[0]
+_SPLICE_SQL = (
+    "SELECT kd.c_kin_code FROM KIN_DATA kd "
+    "WHERE kd.c_personid = :pid "
+    "ORDER BY kd.c_kin_id, kd.c_kin_code"
+)
 
 
 def kinships_query(
     sqlite_path: Path,
     person_id: int,
     *,
-    avalonia_data_dir: Path,
+    avalonia_data_dir: Path | None = None,
+    avalonia_repo: Path | None = None,
 ) -> list[dict[str, Any]]:
-    cs_path = avalonia_data_dir / "SqlitePersonBrowserService.cs"
-    template = _load_get_kinships_sql(cs_path)
-    augmented = template.replace(
-        "kd.c_notes\nFROM",
-        "kd.c_notes,\n    kd.c_kin_code\nFROM",
+    repo = resolve_avalonia_repo(
+        avalonia_repo=avalonia_repo,
+        avalonia_data_dir=avalonia_data_dir,
     )
-    if augmented == template:
-        raise RuntimeError(
-            "kinships SQL extracted from C# no longer matches the "
-            "expected shape (missing `kd.c_notes\\nFROM` anchor)."
+    rows = invoke_parity_host(
+        "kinships", sqlite_path,
+        {"person_id": person_id, "expand_network": False},
+        avalonia_repo=repo,
+    )
+    if not isinstance(rows, list):
+        raise TypeError(
+            f"kinships dispatch returned {type(rows).__name__}; expected list."
         )
-    sql = _csharp_params_to_sqlite(augmented)
-    rows: list[dict[str, Any]] = []
     with sqlite3.connect(sqlite_path) as conn:
-        cursor = conn.execute(sql, {"personId": person_id})
-        for r in cursor.fetchall():
-            (kin_pid, _kin_simplified, kin_chn, kin_en,
-             kin_name_chn, kin_name, up, down, mar, col,
-             src_chn, src_en, pages, notes, kin_code) = r
-            rows.append({
-                "kin_person_id":   kin_pid if kin_pid is not None else 0,
-                "kinship":         _join_display(kin_chn, kin_en),
-                "kin_name_chn":    kin_name_chn,
-                "kin_name":        kin_name,
-                "up_step":         up,
-                "down_step":       down,
-                "marriage_step":   mar,
-                "collateral_step": col,
-                "source":          _join_display(src_chn, src_en),
-                "pages":           pages,
-                "notes":           notes,
-                "kin_code":        kin_code,
-            })
+        codes = [r[0] for r in conn.execute(
+            _SPLICE_SQL, {"pid": person_id},
+        ).fetchall()]
+    if len(codes) != len(rows):
+        raise RuntimeError(
+            f"kinships ID splice row-count mismatch — "
+            f"host={len(rows)} sqlite={len(codes)}."
+        )
+    for row, code in zip(rows, codes, strict=True):
+        row["kin_code"] = code
     return rows
 
 

@@ -97,7 +97,10 @@ def test_biog_basic_pair_smoke_end_to_end(tmp_path: Path) -> None:
 
     limit, offset = 50, 0  # small slice to keep the test fast
 
-    avalonia_rows = biog_basic_query(sqlite_path, limit=limit, offset=offset)
+    avalonia_rows = biog_basic_query(
+        sqlite_path, limit=limit, offset=offset,
+        avalonia_repo=cfg.avalonia_repo,
+    )
     access_rows = biog_basic_query_access(mdb_path, limit=limit, offset=offset)
 
     diff = diff_rows(

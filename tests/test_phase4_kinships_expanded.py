@@ -94,23 +94,8 @@ def test_expanded_kinships_structural() -> None:
     assert expanded == expanded_again, "expanded kinship traversal is non-deterministic"
 
 
-def test_expanded_kinships_reduction_rules_unit() -> None:
-    """Spot-check the ReduceKinship port against the rule table."""
-    from cbdb_parity.avalonia_kinships_expanded import _reduce_kinship
-
-    # "BB" → "B", collateral -1
-    raw, up, down, mar, col = _reduce_kinship("BB", 0, 0, 0, 0)
-    assert (raw, up, down, mar, col) == ("B", 0, 0, 0, -1)
-
-    # "BBBB" → "BB" → "B" via two applications (suffix replaced each
-    # pass).
-    raw, up, down, mar, col = _reduce_kinship("BBBB", 0, 0, 0, 0)
-    assert raw == "B" and col == -3  # -1 per pass, 3 passes
-
-    # No applicable suffix — passthrough.
-    raw, *_ = _reduce_kinship("AB", 0, 0, 0, 0)
-    assert raw == "AB"
-
-    # Empty input — passthrough.
-    raw, *_ = _reduce_kinship("", 1, 2, 3, 4)
-    assert raw == ""
+# Phase 5c-final removed the hand-ported `_reduce_kinship`
+# implementation: the host is now authoritative and Phase 5d's
+# byte-for-byte test (since retired) had already proved
+# equivalence. The structural test above continues to gate the
+# host's expanded kinship output.

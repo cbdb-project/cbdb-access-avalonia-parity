@@ -123,7 +123,7 @@ def test_office_pair_smoke_end_to_end(tmp_path: Path) -> None:
     # CBDB office_id 7 (= "尚書") is one of the most-attested office
     # codes in BIOG/POSTED_TO_OFFICE_DATA — gives us a substantial but
     # bounded row set with which to exercise diff.
-    request = OfficeQueryRequest(office_codes=(7,), limit=200)
+    request = OfficeQueryRequest(office_codes=("7",), limit=200)
 
     avalonia_data = cfg.avalonia_repo / "Cbdb.App.Data"
     try:

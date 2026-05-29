@@ -1,29 +1,35 @@
-"""Python re-execution of Avalonia SqlitePersonBrowserService.GetPostingsAsync
-(Phase 4, Tier 2 per-person accessor #5).
+"""Phase 5c-final batch 2 — postings stub.
 
-GetPostingsAsync produces a NESTED structure in C# (`Posting → Office
-→ Address`) via an in-memory accumulator. We diff the RAW SQL output
-instead, because:
-  1. the C# accumulator logic is deterministic and identical on both
-     sides — replicating it adds no diff signal;
-  2. raw-row diff catches any SQL-engine divergence, which is what
-     the parity harness exists for.
+Unlike the other PersonBrowser accessors, `GetPostingsAsync`
+returns a *nested* `PersonPostingItem` (postings → offices →
+addresses), not a flat row list. The Phase 4 postings pair test
+was designed to diff the *raw SQL row* output (so the Access and
+Avalonia sides could agree column-for-column on the underlying
+POSTED_TO_OFFICE_DATA join).
 
-50 columns + we keep raw IDs (`posting_id`, `office_id`, `addr_id`)
-already exposed in the SELECT — no splicing needed. The diff key
-`(posting_id, sequence, office_id, addr_id)` matches the SQL's
-ORDER BY and is unique per row (NULL preserved as None).
+With the SQL extractor gone, this module no longer has a path to
+build that raw-row mirror without either (a) re-implementing the
+upstream JOIN here by hand, or (b) renormalising the host's
+nested response back into the row shape. Both are real work and
+not load-bearing for the rest of Phase 5; postings is therefore
+left as a `NotImplementedError` and the Phase 4 pair test remains
+skipped with an updated rationale.
+
+A follow-up can pick this up by:
+  1. host-call into the `postings` dispatch (nested output);
+  2. unfold (posting × office × address) into flat dict rows
+     matching `_POSTING_RECORD_FIELDS`; OR
+  3. add a hand-written sqlite query that mirrors the C# JOIN
+     shape directly (the appointment-code expression now lives
+     in `SqliteSchemaCompatibility`, so we can call the same
+     helper through the ParityHost rather than re-extracting
+     interpolated SQL).
 """
 
 from __future__ import annotations
 
-import re
-import sqlite3
 from pathlib import Path
 from typing import Any
-
-from cbdb_parity.avalonia_addresses import _to_bool_or_none
-from cbdb_parity.avalonia_query_sql import find_sql_block
 
 
 _POSTING_RECORD_FIELDS: tuple[str, ...] = (
@@ -57,15 +63,19 @@ _POSTING_RECORD_FIELDS: tuple[str, ...] = (
 _POSTING_ID_FIELDS: tuple[str, ...] = ()
 
 
-def _csharp_params_to_sqlite(sql: str) -> str:
-    return re.sub(r"\$([A-Za-z_][A-Za-z0-9_]*)", r":\1", sql)
-
-
-def _load_get_postings_sql(cs_path: Path) -> str:
-    return find_sql_block(cs_path, "POSTED_TO_OFFICE_DATA")
+def _to_bool_or_none(value: Any) -> bool | None:
+    if value is None:
+        return None
+    return bool(value)
 
 
 def _row_to_dict(r: tuple[Any, ...]) -> dict[str, Any]:
+    """Map a raw POSTED_TO_OFFICE_DATA-join row (50 columns, in the
+    historical SELECT order documented in Phase 4) to the postings
+    record dict. Still used by the Phase 4 Access bridge
+    (`cbdb_parity.access_postings`) to produce its raw-row output.
+    The Avalonia side no longer calls this — see `postings_query`.
+    """
     return {
         "posting_id":             r[0],
         "office_id":              r[1],
@@ -124,16 +134,15 @@ def postings_query(
     sqlite_path: Path,
     person_id: int,
     *,
-    avalonia_data_dir: Path,
+    avalonia_data_dir: Path | None = None,
+    avalonia_repo: Path | None = None,
 ) -> list[dict[str, Any]]:
-    cs_path = avalonia_data_dir / "SqlitePersonBrowserService.cs"
-    sql = _csharp_params_to_sqlite(_load_get_postings_sql(cs_path))
-    rows: list[dict[str, Any]] = []
-    with sqlite3.connect(sqlite_path) as conn:
-        cursor = conn.execute(sql, {"personId": person_id})
-        for r in cursor.fetchall():
-            rows.append(_row_to_dict(r))
-    return rows
+    raise NotImplementedError(
+        "Phase 5c-final retired the SQL-extractor mirror but the "
+        "host's GetPostingsAsync returns a nested PersonPostingItem "
+        "wire format incompatible with the Phase 4 raw-row diff. "
+        "See module docstring for unblock options."
+    )
 
 
 def postings_field_names() -> tuple[str, ...]:

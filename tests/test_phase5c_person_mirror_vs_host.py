@@ -298,7 +298,10 @@ def test_biog_basic_mirror_vs_host() -> None:
     from cbdb_parity.parity_host import invoke_parity_host
 
     limit = 50
-    mirror_rows = biog_basic_query(sqlite_path, limit=limit, offset=0)
+    mirror_rows = biog_basic_query(
+        sqlite_path, limit=limit, offset=0,
+        avalonia_repo=cfg.avalonia_repo,
+    )
     host_rows = invoke_parity_host(
         "biog_basic", sqlite_path,
         {"keyword": None, "limit": limit, "offset": 0},
@@ -309,17 +312,14 @@ def test_biog_basic_mirror_vs_host() -> None:
 
 
 def test_postings_mirror_vs_host() -> None:
-    """Postings is the highest-stakes pair: GetPostingsAsync uses an
-    interpolated SQL block that the Python extractor can't read
-    (see reports/known_issues.md `office_basic/postings_basic`).
-    The mirror's raw-row extraction approach gets the SQL via the
-    parity_host.access bridge for that test — but the avalonia-side
-    mirror here STILL goes through the broken SQL extraction path
-    and would LookupError. Skip until 5c-final replaces the mirror
-    with a thin via_host delegate.
+    """Phase 5c-final left postings as NotImplementedError because
+    GetPostingsAsync returns a nested PersonPostingItem wire format
+    that the Phase 4 raw-row pair test was not built around. The
+    mirror-vs-host check therefore can't run here — see
+    `cbdb_parity.avalonia_postings` for the unblock options.
     """
     pytest.skip(
-        "postings mirror still uses broken SQL extractor "
-        "(reports/known_issues.md office_basic). Phase 5c-final "
-        "replaces the mirror with a via_host delegate and clears this."
+        "postings mirror raises NotImplementedError after 5c-final "
+        "(nested PersonPostingItem wire format vs raw-row diff). "
+        "See cbdb_parity.avalonia_postings for unblock paths."
     )
