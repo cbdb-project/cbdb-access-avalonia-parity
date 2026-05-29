@@ -91,13 +91,19 @@ internal static class Program
                 "detail"         => await PersonAccessor((svc, pid) => svc.GetDetailAsync(sqlitePath, pid)),
                 // BIOG basic search — (keyword, limit, offset).
                 "biog_basic"     => await DispatchBiogBasicAsync(sqlitePath, requestBody),
+                // Phase 5e lookup surfaces — added once the SDK was
+                // available so the harness can drive the same options
+                // builders the Avalonia UI uses.
+                "dynasty_lookup" => await DispatchDynastyLookupAsync(sqlitePath),
+                "place_lookup"   => await DispatchPlaceLookupAsync(sqlitePath),
+                "group_people"   => await DispatchGroupPeopleAsync(sqlitePath, requestBody),
                 _                => throw new ArgumentException(
                                       $"unknown service '{service}' "
                                       + "(supported: entry, office, status, kinships, "
                                       + "addresses, altnames, writings, postings, entries, "
                                       + "statuses, possessions, events, associations, "
-                                      + "sources, institutions, detail, biog_basic; "
-                                      + "GroupPeople/PlaceLookup/DynastyLookup in later commits)"
+                                      + "sources, institutions, detail, biog_basic, "
+                                      + "dynasty_lookup, place_lookup, group_people)"
                                   ),
             };
 
@@ -251,6 +257,61 @@ internal static class Program
         );
         return JsonSerializer.Serialize(result, _jsonOptions);
     }
+
+    /// <summary>
+    /// Dispatch <c>SqliteDynastyLookupService.GetDynastiesAsync</c> —
+    /// returns the dynasty option list the UI uses to populate
+    /// dropdowns. Phase 5e.
+    /// </summary>
+    private static async Task<string> DispatchDynastyLookupAsync(string sqlitePath)
+    {
+        var service = new SqliteDynastyLookupService();
+        var result = await service.GetDynastiesAsync(sqlitePath);
+        return JsonSerializer.Serialize(result, _jsonOptions);
+    }
+
+    /// <summary>
+    /// Dispatch <c>SqlitePlaceLookupService.GetPlacesAsync</c>. Phase 5e.
+    /// </summary>
+    private static async Task<string> DispatchPlaceLookupAsync(string sqlitePath)
+    {
+        var service = new SqlitePlaceLookupService();
+        var result = await service.GetPlacesAsync(sqlitePath);
+        return JsonSerializer.Serialize(result, _jsonOptions);
+    }
+
+    /// <summary>
+    /// Dispatch <c>SqliteGroupPeopleService.QueryAsync</c> — multi-person
+    /// composite. Wire shape: <code>{"person_ids":[...], "options":{...}}</code>
+    /// where options matches <see cref="GroupPeopleQueryOptions"/>
+    /// (include_status / include_office / include_entry / include_texts /
+    /// include_addresses / address_mode). Phase 5e.
+    /// </summary>
+    private static async Task<string> DispatchGroupPeopleAsync(
+        string sqlitePath, string requestBody)
+    {
+        var request = JsonSerializer.Deserialize<GroupPeopleRequest>(
+            requestBody, _jsonOptions
+        ) ?? throw new ArgumentException(
+            "group_people: request body could not be deserialised into "
+            + "{person_ids, options}"
+        );
+        var service = new SqliteGroupPeopleService();
+        var result = await service.QueryAsync(
+            sqlitePath, request.PersonIds, request.Options
+        );
+        return JsonSerializer.Serialize(result, _jsonOptions);
+    }
+
+    /// <summary>
+    /// Wire shape for <see cref="DispatchGroupPeopleAsync"/>. We keep
+    /// it local rather than introduce a new Cbdb.App.Core record per
+    /// the §0 scope contract (this repo does not modify upstream).
+    /// </summary>
+    private sealed record GroupPeopleRequest(
+        IReadOnlyList<int> PersonIds,
+        GroupPeopleQueryOptions Options
+    );
 
     /// <summary>
     /// Shared <see cref="JsonSerializerOptions"/>.

@@ -352,10 +352,18 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     the Python copy. If 5d uncovers divergence, 5c on the kinships
     module is blocked until reconciled.
 
-  - **5e — coverage extension**: with C# directly callable, the
-    documented Avalonia gaps (Texts / Networks / AssociationPairs /
-    Place / GroupData) become more tractable, BUT NOT automatic. For
-    each new Avalonia service an implementor still needs to:
+  - **5e — coverage extension (✅ landed 2026-05-29)**: with the C#
+    directly callable, the lookup/group surfaces already in
+    cbdb-desktop-app (DynastyLookup, PlaceLookup, GroupPeople) are
+    now exposed through the ParityHost and wrapped in Python
+    (`cbdb_parity/avalonia_lookups.py`) with smoke tests in
+    `tests/test_phase5e_lookups_smoke.py`. The other documented
+    gaps (Texts / Networks / AssociationPairs) are NOT in upstream
+    yet, so per the §0 scope contract they remain out of scope
+    until an upstream commit lands them — at which point this repo
+    only needs to add the host dispatch + Python wrapper + smoke
+    test. The original 5e plan listed three integration costs per
+    new service:
       1. land the upstream service in `cbdb-desktop-app` (record +
          interface + SqliteXxxService.cs, per the existing pattern);
       2. add a dispatch branch in `Cbdb.App.ParityHost` that knows
