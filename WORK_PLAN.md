@@ -227,6 +227,76 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     - `cbdb_parity.access_query._replay_row_to_avalonia_shape` (and the office/status variants) coerce pandas-NaN → None so SQL-NULL columns don't surface as 198/200 spurious mismatches.
     - Shared `_join_display` / `_to_bool_or_none` helpers in `cbdb_parity.avalonia_altnames` and `cbdb_parity.avalonia_addresses` are reused across all Tier 2 bridges to keep post-processing identical.
 
+- **Phase 5 (next, planned 2026-05-29 onwards)** — pivot to direct
+  .NET Avalonia execution via a new `Cbdb.App.ParityHost` console.
+  Reason: Phase 3-4 used the "extract SQL + Python re-execute" path
+  because the user's machine only had .NET runtime, no SDK. The
+  user's followup goal installs SDK 8.0.421 (verified
+  `dotnet --list-sdks` shows it; `dotnet build Cbdb.App.Data.csproj`
+  succeeds clean against the existing tree). With SDK available we
+  can stop mirroring C# semantics in Python and instead invoke the
+  real C# services. Concretely:
+
+  - **5a — ParityHost console**:
+    - New project: `cbdb-desktop-app/Cbdb.App.ParityHost/`
+      (`dotnet new console -f net8.0`).
+    - References `Cbdb.App.Core` (for the request/record records) and
+      `Cbdb.App.Data` (for `SqliteEntryQueryService`,
+      `SqliteOfficeQueryService`, `SqliteStatusQueryService`,
+      `SqlitePersonBrowserService`).
+    - CLI: `cbdb-parity-host <service> <sqlite-path> <request-json>`
+      → reads JSON request from stdin, instantiates the service, runs
+      `QueryAsync` / `Get*Async`, JSON-serialises the result to stdout.
+      Errors → JSON `{error: ..., stack: ...}` on stderr.
+    - One executable handles all 7 Avalonia query surfaces (Entry,
+      Office, Status, PersonBrowser, GroupPeople, PlaceLookup,
+      DynastyLookup).
+
+  - **5b — Python harness switchover**: each of the existing
+    `cbdb_parity/avalonia_*.py` modules currently does
+    `extract_sql_blocks(cs_path) → sqlite3.connect(...).execute(...)`.
+    Adds a NEW execution mode `via_parity_host(...)` that
+    subprocess-invokes the ParityHost binary with the JSON-serialised
+    request and parses the JSON response. Original SQL-extract path
+    kept as `via_sql_extract(...)` for diffing (the two paths SHOULD
+    produce identical row sets — any divergence is a Python-mirror
+    bug we've been failing to catch).
+
+  - **5c — phase out the Python mirror layer** once the
+    via-ParityHost path is proven equivalent: drop the SQL extractor +
+    its associated rewrites (`_csharp_params_to_sqlite`,
+    `_join_display`, `_to_bool_or_none`, the AddrField casefold, the
+    NULL sequence → 0 coercion, etc.). All of these have been bug
+    sources (codex caught ~10 P1/P2 issues across the 18 review
+    rounds purely from Python-mirror drift). The replay scan +
+    Tier 1/2 pair tests stay; only their backend swaps.
+
+  - **5d — kinship expandNetwork=true cross-check**: the BFS state
+    machine in `cbdb_parity/avalonia_kinships_expanded.py` is the
+    biggest manual port. Run both ports against the same set of
+    person_ids and require byte-identical output before deprecating
+    the Python copy.
+
+  - **5e — coverage extension**: with C# directly callable, the
+    documented Avalonia gaps (Texts / Networks / AssociationPairs /
+    Place / GroupData) become tractable — implementor only adds the
+    Avalonia service; parity harness picks it up via the ParityHost
+    automatically.
+
+  - **Caveats / open questions**:
+    - **Startup cost**: `dotnet run` cold-start is ~500ms-1s. For ~400
+      tests × multiple sub-queries each this matters. Mitigation:
+      ParityHost stays alive as a daemon, Python harness streams
+      requests via stdin/stdout JSON line protocol (NDJSON).
+    - **`Cbdb.App.Data` references Microsoft.Data.Sqlite**: ParityHost
+      will too. No additional native deps.
+    - **Test repro**: ParityHost output should be deterministic for a
+      fixed (sqlite_path, request) pair. CI / parity reports keep
+      the same SHA-anchoring contract.
+    - **Backwards-compat during transition**: don't delete the SQL
+      extractor until 5c verification passes; the existing 400-test
+      green state is the floor.
+
 ## 9. Open questions
 
 **Resolved during planning:**
