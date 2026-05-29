@@ -66,28 +66,34 @@ def _prereqs_or_skip(avalonia_repo: Path) -> None:
                     )
 
 
-def _row_subset_keys(host_row: dict[str, Any]) -> dict[str, Any]:
-    """Project a C#-shaped row to the keys our Python mirror also
-    emits. The mirror's `_*_RECORD_FIELDS` use snake_case; the
-    ParityHost output (after `SnakeCaseLower`) does too. Reduces
-    noise from C#-side fields the mirror doesn't carry."""
-    # The mirror's entry record has 35 fields (see
-    # cbdb_parity.avalonia_query._ENTRY_RECORD_FIELDS). The C#
-    # `EntryQueryRecord` has the same 35 in the same order. We
-    # don't enforce equality field-by-field here (that's
-    # test_phase3c_entry_pair's job); we just confirm the SET of
-    # keys agrees.
-    return {k: host_row[k] for k in host_row if k in host_row}
+# Each entry below is a host field name the Python mirror is
+# allowed to omit. Add a new key to the matching set when the
+# upstream C# starts emitting a field we deliberately haven't
+# ported, and include a `Suppress until …` rationale alongside.
+# An empty set means "the mirror must track upstream exactly" —
+# the test fails the moment the host gains or drops a key.
+#
+# Mirror fabrications (mirror_keys − host_keys) are NEVER OK; the
+# test asserts that direction without any allow-list.
+_KNOWN_MIRROR_GAPS_ENTRY: frozenset[str] = frozenset()
 
 
 def test_entry_host_vs_mirror_keys_agree() -> None:
-    """Mirror correctness: the keys of a Python-mirror row must be
-    a subset of the keys of the corresponding ParityHost row.
+    """Mirror correctness: a Python-mirror row and the corresponding
+    ParityHost row must share the same set of keys, modulo a
+    documented allow-list of mirror gaps.
 
-    If the mirror starts emitting a key the host doesn't, that's a
-    parity-side fabrication. If the host emits keys the mirror
-    doesn't, that's a known mirror gap (acceptable for now; the
-    Phase 5c plan handles full deprecation).
+    Two directions, both load-bearing:
+
+    - **mirror_keys − host_keys** (mirror fabrication): the Python
+      mirror is emitting a field the real C# doesn't. Always a
+      mirror bug — never allowed.
+    - **host_keys − mirror_keys − _KNOWN_MIRROR_GAPS_ENTRY**
+      (mirror gap): the upstream C# is emitting a field we haven't
+      ported. Add it to the mirror, or add it to
+      `_KNOWN_MIRROR_GAPS_ENTRY` with a rationale.
+
+    Codex 5a-5 P1 caught that only the first direction was checked.
     """
     cfg = _load_config_or_skip()
     _prereqs_or_skip(cfg.avalonia_repo)
@@ -129,6 +135,13 @@ def test_entry_host_vs_mirror_keys_agree() -> None:
         f"{sorted(extra_in_mirror)}. This is a mirror fabrication — "
         f"fix the mirror (cbdb_parity/avalonia_query.py) to match the "
         f"upstream EntryQueryRecord shape."
+    )
+    extra_in_host = host_keys - mirror_keys - _KNOWN_MIRROR_GAPS_ENTRY
+    assert not extra_in_host, (
+        f"Upstream C# emits fields the Python mirror doesn't: "
+        f"{sorted(extra_in_host)}. Either add them to the mirror "
+        f"(cbdb_parity/avalonia_query.py) or extend "
+        f"_KNOWN_MIRROR_GAPS_ENTRY with a 'Suppress until …' rationale."
     )
 
     # Common keys must agree on person_id for the first row (the
