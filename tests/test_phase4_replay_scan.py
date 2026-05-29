@@ -365,7 +365,13 @@ def test_replay_scan(
             # Office shape: same diff key as Phase 3d (see
             # test_phase3d_office_pair.py for rationale on the addr-id
             # tail).
-            key_fields = ("person_id", "posting_id", "office_id", "office_addr_id")
+            # Use the field names the bridges actually emit
+            # (`office_code` / `office_address_id`, NOT the C# aliases
+            # `office_id` / `office_addr_id`). The wrong names made
+            # every office row key as (pid, posting_id, None, None) —
+            # silently collapsing multi-address fan-outs before diff.
+            # (codex final-round-1 P1.)
+            key_fields = ("person_id", "posting_id", "office_code", "office_address_id")
             compare_fields = office_query_common_fields()
         else:
             pytest.skip(f"unsupported category {category!r}")
