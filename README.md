@@ -89,7 +89,7 @@ Phases 1–8 landed (2026-05-27 → 2026-05-30). Current suite:
 phase-by-phase in `WORK_PLAN.md` (English) and
 `WORK_PLAN.zh-CN.md` (Chinese, authoritative for project
 decisions made in Chinese). Both `WORK_PLAN.md §9` and
-`WORK_PLAN.zh-CN.md §9` carry a Post-Phase-7 status block
+`WORK_PLAN.zh-CN.md §9` carry a Post-Phase-9 status block
 enumerating the active suppressions and their re-arm
 conditions.
 

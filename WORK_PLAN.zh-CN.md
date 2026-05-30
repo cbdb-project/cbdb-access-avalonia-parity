@@ -757,12 +757,12 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
   Phase 9 不改 suite count、运行时、或任何对外 API。两件
   事都是让 in-repo 文档准确反映 Phase 8 之后的真实情况。
 
-  - **9a — Phase 7 sub-phase prose 改成 past-tense + codex
-    annotations**（en + zh-CN）。8d 给每个 Phase 7 sub-phase
-    加了 `(✅ 落地 2026-05-30)` 标签，但段落本体还是规划态
-    的未来时（"加一个 CI workflow，在 push/PR 时..."、
-    "CLI 会重写..."）。把每段改成回顾式过去时，并在每段后
-    附上该 sub-phase 的实际 codex round delta：
+  - **9a (✅ 落地 2026-05-30) — Phase 7 sub-phase prose
+    改成 past-tense + codex annotations**（en + zh-CN）。
+    8d 给每个 Phase 7 sub-phase 加了 `(✅ 落地 2026-05-30)`
+    标签，但段落本体还停在规划态的未来时。把两份文档里
+    每一段都改成了回顾式过去时，并在每段后附上该 sub-phase
+    的实际 codex round delta 注释块：
       - 7a：codex 干净。
       - 7b：算术 + suppression-table 准确性 + Phase 6
         close-out 锚点。
@@ -778,31 +778,55 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
       - 7h：timeout 强制 + 后台 stderr drainer + 更安全
         `__exit__`。
 
-    把同样的改动镜像到 `WORK_PLAN.zh-CN.md`，让两份头保持
-    一致。Codex review。
+    *Codex round*：抓出三个问题——7e 段落本体没说全
+    （detector 还要把 `NULL c_kin_id` 当 trigger，正文
+    只写了无 BIOG_MAIN 对应行的情况）；7h 对 Phase 8a 的
+    交叉引用还是 forward-looking（"later wires" → "subsequently
+    wired"）；7d en/zh-CN 漂移于 "spanning two dynasties" 这个
+    描述（加到 zh-CN 上对齐）。
 
-  - **9b — `AGENTS.md` Phase 7/8 补段**。AGENTS.md 有 §0.b
-    但没提两件对实际操作有意义的落地事项：
-      - `.github/workflows/ci.yml` 的 CI workflow（Phase 7g）。
-        新贡献者应该预期每次 push/PR 都会跑 pytest/ruff；
-        如果改动涉及 import 或 non-DB 单元测试，要保证 CI
-        保持绿。
+  - **9b (✅ 落地 2026-05-30) — `AGENTS.md` Phase 7/8
+    补段**。AGENTS.md 当时有 §0.b 但没提两件对新贡献者
+    有意义的落地事项。加了一个 "Phase 7 + Phase 8
+    operational landings" 子节：
+      - `.github/workflows/ci.yml` 的 CI workflow（Phase 7g）
+        ——跑什么、不跑什么、哪类改动要保持 CI 绿；
       - 通过 `parity_host_daemon` pytest fixture 启用的
-        ParityHost daemon mode（Phase 7h + 8a）。opt-in
-        的测试自动得到 daemon 加速；自己管理
-        `with ParityHostDaemon(...) as host:` 的测试照常
-        工作——Phase 7h smoke 测试是参考例子。
+        ParityHost daemon mode（Phase 7h + 8a）——两种模式
+        契约、fixture 接入方式、
+        `tests/test_phase5c_person_mirror_vs_host.py` 和
+        `tests/test_phase4_replay_scan.py` 作为 opt-in 例子、
+        host-using 子集 ~150s → ~61s 的运行时收益。
 
-    加一小节（约 10 行）覆盖两件事。Codex review。
+    *Codex round*：抓出三个问题——"`[access]` —— pyodbc
+    is Windows-only" 是事实错误（pyodbc 本身跨平台；
+    Windows-only 的实际原因是 `pypyodbc` + `pywinauto`
+    加上 pyodbc 绑定的 Windows-only Access ODBC/ACE
+    驱动）；CI 排除项 "build the mdb or sqlite (Windows
+    ODBC + Datadump required)" 过度概括（sqlite 严格说
+    不需要 Windows ODBC；实际理由是 Datadump + MariaDB
+    cache 都在 contributor 本机，不在 GHA runner——按
+    builder 拆分了说明）；子节日期 "(added 2026-05-31)"
+    比实际 commit 日期 2026-05-30 提前了一天，借此发现
+    Phase 7 起 WORK_PLAN / AGENTS / README 里 37 个
+    `(✅ landed 2026-05-31)` 标签全部错了一天——一并
+    sweep 到 2026-05-30。
 
-  - **预期 suite delta**：0——纯文档。
+  - **Suite delta**：0——纯文档。
 
   - **不做**（按 §0.a + 2026-05-30 指示）：同 Phase 8
     的排除项。
 
-  - **顺序**：9a → 9b。每步 codex sign-off + `git push`。
-    两件都是 doc-only 可以打包，但分开保留 Phase
-    5/6/7/8 的 codex-per-step 节奏。
+  - **顺序**：9a → 9b。每步 codex sign-off + `git push`
+    收尾，保持 Phase 5/6/7/8 的 codex-per-step 节奏。
+
+  - **不再 retro-fit**：Phase 9 显式终止"每个阶段回头
+    清理上一个阶段 prose" 这条递归链。Phase 9 子阶段
+    paragraph 本身在写它们的同一个 commit 里就带了
+    past-tense + ✅ 标签 + codex 注释，**不会**有 Phase 10
+    再回来 retro-fit Phase 9 的 prose。如果未来贡献者
+    看到这里有事实错误，直接改就行；自我引用的递归
+    到这段为止。
 
 ## 9. 未决问题
 
@@ -818,11 +842,13 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
 - ✅ **空 mdb 起步（1.3b）**：用 `pypyodbc.win_create_mdb()` —— 实测一行调用生成 172 KB 空 mdb。**不用** `pyodbc`（不存在文件直接报错）、**不用** ADOX/`win32com`（重）、**不用**在 repo 里 commit 模板（不可复现）。`pypyodbc` 加进 `[access]` extra 依赖，只用这一个函数；其他所有 mdb 操作继续走 `pyodbc`。
 - ✅ **MariaDB 中间缓存（Phase 1.6）**：Phase 1.3b 在真实 Datadump 上撞到 Jet 的两个硬伤（2 GB 事务 buffer 上限、PK-on-duplicates `IntegrityError 23000`）后，确定把 MariaDB 中间层作为 sqlite_builder + mdb_builder 的**默认** import source。该缓存层**不**违反 §1 严格流水线规则禁止使用本机已有 user mdb 的条款 —— 它由我们自己从 Datadump 灌出来，靠 in-DB SHA provenance 行做缓存校验。Phase 1.6 之前的 `cbdb_parity.mysqldump` 直链路径保留为非 Docker 主机的 fallback (`source='datadump'`)。**本条决策与前文 "连续三轮 codex → Docker MySQL 兜底" 的触发条件是互补的**，不是替代 —— 那一条仍然约束 **SQLite builder 内部** Python 端口 vs Docker MySQL 的选择。
 
-### Post-Phase-7 status (2026-05-30)
+### Post-Phase-9 status (2026-05-30)
 
-Phase 8d 收尾。Phase 7 在八个 commit 内落地（每个 + codex
-round + push），Phase 7 收尾审计又带出 Phase 8 的八个项目
-收完整体框架。Phase 8 关闭后，suite-count 契约变为：
+Phase 9b 收尾。Phase 7 当时是 Phase 6 close 看到的本 repo
+backlog；执行中 Phase 7 收尾审计带出 Phase 8 的八个项目，
+Phase 8 收尾审计又带出 Phase 9 的两个项目（Phase 7
+sub-phase prose 改成回顾式，加 AGENTS.md Phase 7/8 操作
+段）。Phase 9 关闭后，suite-count 契约是：
 
 - **387 passed**（Phase 6 close 时是 354 → +33 净 delta：
   Phase 7a/7c/7d/7e/7f/7h 加了 34 个 passing case，然后
@@ -848,10 +874,11 @@ round + push），Phase 7 收尾审计又带出 Phase 8 的八个项目
   ORDER BY；语义对齐（dynasty-filter probe 已验证），
   只是行集不重合。
 
-这些数字锚定到 Phase 8 close（8d 自己落地的 commit）。后续
+这些数字锚定到 Phase 9 close（commit `da1c6d2`）。Phase 9
+纯文档，suite count 没动，继承 Phase 8 close 的锚点。后续
 任何动这些数字的改动都要把 delta 写到 commit message 里。
 
-Phase 8 还兑现了 Phase 7h daemon 的运行时收益：host-using
+Phase 8a 兑现了 Phase 7h daemon 的运行时收益：host-using
 子集（Phase 5c + replay_scan kinship + 7h 本身）在 daemon
 bind 下从 ~150 秒降到 ~61 秒。完整 `pytest tests/` 大约
 ~222 秒——剩下的成本是 daemon 改不了的非 host 部分
@@ -871,7 +898,10 @@ bind 下从 ~150 秒降到 ~61 秒。完整 `pytest tests/` 大约
 repo 范围内，按 2026-05-30 用户指示也不开 issue 去请求。
 所以这些 suppression 等上游独立行动。
 
-Phase 8 关闭后 repo 真正进入稳态：本 repo 内没有待办；
-下一次变化要么是下游使用者把过时 suppression 清理掉，要
-么是上游 commit 让某条之前 skip 的 test 重新 arm。
+Phase 9 关闭后 repo 真正进入稳态：本 repo 内没有待办。
+Phase 9 自己显式终止了"每个阶段回头清理上一个阶段 prose"
+的递归链（见 Phase 9 段落末尾的 "不再 retro-fit" 说明）。
+下一次变化要么是下游使用者在 `known_issues.md` 里把过时
+suppression 清理掉，要么是上游 commit（`cbdb-user-mdb-tests`
+/ `cbdb-desktop-app`）让某条之前 skip 的 test 重新 arm。
 - ✅ **LICENSE**：Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International（CC BY-NC-SA 4.0）。

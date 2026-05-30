@@ -996,14 +996,15 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
   exported API. Both items are about making the in-repo
   documentation accurately reflect post-Phase-8 reality.
 
-  - **9a — Phase 7 sub-phase prose past-tense + codex
-    annotations** (en + zh-CN). The 8d markers gave each
-    Phase 7 sub-phase a `(✅ landed 2026-05-30)` tag but
-    left the paragraph bodies in planning-era future tense
-    ("Add a CI workflow that on push/PR...", "the CLI will
-    rewrite..."). Convert each sub-phase paragraph to
-    retrospective past tense, and append each sub-phase's
-    actual codex-round delta in a short annotation block:
+  - **9a (✅ landed 2026-05-30) — Phase 7 sub-phase prose
+    past-tense + codex annotations** (en + zh-CN). The 8d
+    markers had given each Phase 7 sub-phase a `(✅ landed
+    2026-05-30)` tag but left the paragraph bodies in
+    planning-era future tense. Rewrote every Phase 7
+    sub-phase paragraph in both heads as past-tense
+    retrospective and appended each sub-phase's actual
+    codex-round delta as a short *Codex round* annotation
+    block:
       - 7a: codex clean.
       - 7b: arithmetic + suppression-table accuracy + Phase 6
         close-out anchor.
@@ -1019,36 +1020,65 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
       - 7h: timeout enforcement + background stderr drainer
         + safer `__exit__`.
 
-    Mirror identical edits into `WORK_PLAN.zh-CN.md` so the
-    two heads keep parity. Codex review.
+    *Codex round*: caught three issues — 7e's body
+    underspecified the landed behaviour (the detector also
+    needed to treat `NULL c_kin_id` as a trigger; the body
+    only mentioned the no-BIOG_MAIN-match path); the 7h
+    cross-reference to Phase 8a was still forward-looking
+    ("later wires" → "subsequently wired"); en/zh-CN 7d
+    drifted on the "spanning two dynasties" qualifier
+    (added to zh-CN to match).
 
-  - **9b — `AGENTS.md` Phase 7/8 notes**. AGENTS.md has
-    §0.b but doesn't mention two operationally relevant
-    landings:
-      - CI workflow at `.github/workflows/ci.yml` (Phase 7g).
-        New contributors should expect pytest/ruff to run on
-        every push/PR; if their change touches imports or
-        the non-DB unit tests, they should ensure CI stays
-        green.
+  - **9b (✅ landed 2026-05-30) — `AGENTS.md` Phase 7/8
+    notes**. AGENTS.md had §0.b but didn't mention two
+    operationally relevant landings new contributors needed
+    to know about up front. Added a "Phase 7 + Phase 8
+    operational landings" subsection covering:
+      - the CI workflow at `.github/workflows/ci.yml`
+        (Phase 7g) — what it runs, what it deliberately
+        doesn't run, and which kinds of changes should keep
+        it green;
       - ParityHost daemon mode via the `parity_host_daemon`
-        pytest fixture (Phase 7h + 8a). A test that opts in
-        gets the daemon-backed routing for free. Tests that
-        manage their own `with ParityHostDaemon(...) as
-        host:` block still work — Phase 7h's smoke tests
-        are the canonical examples.
+        pytest fixture (Phase 7h + 8a) — the two-mode
+        contract, the fixture wiring,
+        `tests/test_phase5c_person_mirror_vs_host.py` and
+        `tests/test_phase4_replay_scan.py` as canonical
+        opt-in examples, and the runtime delta of ~150s →
+        ~61s on the host-using subset.
 
-    Add a short subsection (~10 lines) covering both.
-    Codex review.
+    *Codex round*: caught three issues — "`[access]` —
+    pyodbc is Windows-only" was factually wrong (pyodbc
+    itself is cross-platform; the Windows-only constraint
+    is `pypyodbc` + `pywinauto` plus the Access ODBC/ACE
+    driver that pyodbc binds to in this codebase); the
+    "build the mdb or sqlite (Windows ODBC + Datadump
+    required)" CI-exclusion line overgeneralised (sqlite
+    doesn't strictly need Windows ODBC; the actual reason
+    is Datadump + MariaDB cache living on the contributor's
+    machine — split per-builder); the "(added 2026-05-31)"
+    subsection date was future-dated relative to the actual
+    commit date 2026-05-30, which exposed 37 stale
+    `(✅ landed 2026-05-31)` markers propagated through
+    WORK_PLAN / AGENTS / README from Phase 7 onward — all
+    swept to 2026-05-30.
 
-  - **Expected suite delta**: 0 — pure docs.
+  - **Suite delta**: 0 — pure docs.
 
   - **Out of scope** (per §0.a + 2026-05-30 directive):
     same exclusions as Phase 8.
 
-  - **Sequencing**: 9a → 9b. Each step ends with codex
-    sign-off + `git push`. Both are doc-only and could be
-    batched, but keeping them separate preserves the
-    Phase 5/6/7/8 codex-per-step rhythm.
+  - **Sequencing**: 9a → 9b. Each step ended with codex
+    sign-off + `git push`, preserving the Phase 5/6/7/8
+    codex-per-step rhythm.
+
+  - **No further retro-fit**: Phase 9 deliberately ends the
+    "each phase retroactively cleans up the previous one"
+    pattern. The Phase 9 sub-phase paragraphs above carry
+    their own past-tense + ✅ markers + codex annotations in
+    the same commit that wrote them; no Phase 10 will land
+    just to retro-fit Phase 9's prose. If a future contributor
+    spots a real factual error here they fix it directly; the
+    self-referential recursion stops at this paragraph.
 
 ## 9. Open questions
 
@@ -1132,15 +1162,20 @@ in this repo:**
 
 Phase 7 was the in-repo backlog as understood at Phase 6 close;
 in execution it surfaced a small post-completion audit that
-shipped as Phase 8 — see the Post-Phase-7 status block below
-for the final close-out.
+shipped as Phase 8, which in turn surfaced two cosmetic gaps
+(Phase 7 sub-phase prose still in planning future tense, and
+AGENTS.md not yet citing CI/daemon) that shipped as Phase 9.
+See the Post-Phase-9 status block below for the final
+close-out.
 
-### Post-Phase-7 status (2026-05-30)
+### Post-Phase-9 status (2026-05-30)
 
-Phase 8d close-out. Phase 7 landed in eight commits (each with
-a codex round + push), and the post-Phase-7 audit surfaced
-eight Phase 8 items that wrapped up housekeeping. With Phase 8
-closed, the suite-count contract becomes:
+Phase 9b close-out. Phase 7 landed in eight commits, the
+post-Phase-7 audit surfaced eight Phase 8 items, and the
+post-Phase-8 audit surfaced two Phase 9 items
+(retrospective prose conversion for Phase 7 sub-phases, and
+AGENTS.md Phase 7/8 operational notes). With Phase 9 closed,
+the suite-count contract is:
 
 - **387 passed** (was 354 at Phase 6 close → +33 net delta:
   Phase 7a/7c/7d/7e/7f/7h added 34 passing cases, then
@@ -1168,11 +1203,12 @@ closed, the suite-count contract becomes:
   (verified by the dynasty-filter probe), the row sets just
   don't overlap.
 
-These numbers anchor at the Phase 8 close (commit will land
-once 8d itself ships). Any subsequent change that moves them
-should record the delta in its commit message.
+These numbers anchor at the Phase 9 close (commit `da1c6d2`).
+Phase 9 was pure docs, so the suite count didn't move from the
+Phase 8 close anchor it inherited. Any subsequent change that
+moves them should record the delta in its commit message.
 
-Phase 8 also actualised the Phase 7h daemon runtime win: the
+Phase 8a actualised the Phase 7h daemon runtime win: the
 host-using test subset (Phase 5c + replay_scan kinship + 7h
 itself) drops from ~150s to ~61s with the
 `parity_host_daemon` fixture active. The full
@@ -1182,7 +1218,7 @@ that the daemon can't speed up.
 
 **Active suppressions and their re-arm conditions** (mirror
 of the zh-CN table; both heads carry the same list to keep
-en/zh-CN parity at the Phase 8 close):
+en/zh-CN parity at the Phase 9 close):
 
 | entry | re-arm condition |
 |---|---|
@@ -1197,8 +1233,12 @@ Every re-arm condition above needs an upstream change — per
 2026-05-30 user directive we don't file issues to request
 them. The suppressions wait on independent upstream action.
 
-After Phase 8 closes the repo is in a true steady-state. No
-further in-repo work is queued; the next change should arrive
-either as a downstream consumer clearing an obsolete
-suppression or as an upstream commit re-arming a previously
-skipped test.
+After Phase 9 closes the repo is in a true steady-state. No
+further in-repo work is queued; Phase 9 itself explicitly
+terminates the "each phase retroactively cleans up the
+previous one" pattern (see the no-further-retro-fit note at
+the end of the Phase 9 section). The next change should
+arrive either as a downstream consumer clearing an obsolete
+suppression in `known_issues.md` or as an upstream commit
+(`cbdb-user-mdb-tests` / `cbdb-desktop-app`) re-arming a
+previously skipped test.
