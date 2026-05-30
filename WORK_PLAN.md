@@ -797,10 +797,13 @@ BIOG basic, kinship recursive, and associations had shape mismatches that requir
     kill-if-needed → signal-and-join the stderr drain
     thread, so captured lines stay accessible).
 
-  - **Expected suite delta** (additive only — no §0.b
-    regressions): 7d adds ~6–10 parametrised cases, 7e adds 1,
-    7f adds 3–5 replay_scan rows. 7a/7b/7c/7g/7h add no test
-    cases (pure infra/docs).
+  - **Suite delta as landed** (additive only — no §0.b
+    regressions): 7c added 4 CLI tests, 7d added 22
+    parametrised cases (11 functions × 2 new fixtures),
+    7e added 1 case that currently skips on the canonical
+    dump, 7f added 3 replay_scan kinship rows, 7h added 4
+    smoke tests; 7a/7b/7g were pure docs/CI/lint and added
+    0 passing cases. Phase 7 net: 33 passes + 1 skip.
 
   - **Out of scope for Phase 7** (per §0.a + user directive
     2026-05-30):
@@ -951,8 +954,11 @@ BIOG basic, kinship recursive, and associations had shape mismatches that requir
       7h's timeout enforcement + stderr drainer + safer exit).
     - Extend the §9 "Post-Phase-6 status (2026-05-30)" block
       with a "Post-Phase-7 status (2026-05-30)" subsection
-      anchoring the new suite-count contract: 388 passed,
+      anchoring the new suite-count contract: 387 passed,
       7 skipped, 1 xfailed at Phase 7 close (commit `46e8186`).
+      (Phase 8 audit corrected this from the Phase 8a-era
+      "388 / 7 / 1" claim — see the Post-Phase-9 status block
+      for the per-sub-phase arithmetic.)
     - Refresh `README.md` "Repository status" — "Phases 1–6
       landed (2026-05-27 → 2026-05-30). Current suite: 354
       passed, 6 skipped, 1 xfailed." becomes "Phases 1–7

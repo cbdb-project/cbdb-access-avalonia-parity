@@ -583,10 +583,13 @@ BIOG basic、kinship recursive、associations 当时有形状不匹配，需要�
     → wait → 必要时 kill → 信号通知 stderr drain 线程退出
     并 join，保住捕获的行）。
 
-  - **预期 suite delta**（纯加，不会有 §0.b regression）：
-    7d 加 ~6–10 个参数化 case，7e 加 1 个，7f 加 3–5 个
-    replay_scan 行。7a/7b/7c/7g/7h 不加测试 case（纯
-    infra/docs）。
+  - **落地后的 suite delta**（纯加，不会有 §0.b
+    regression）：7c 加了 4 个 CLI 测试，7d 加了 22 个参数
+    化 case（11 个函数 × 2 个新 fixture），7e 加了 1 个
+    case 但在 canonical dump 上当前 skip，7f 加了 3 个
+    replay_scan kinship 行，7h 加了 4 个 smoke 测试；
+    7a/7b/7g 纯 docs/CI/lint，加 0 个 passing case。
+    Phase 7 净：33 个 pass + 1 个 skip。
 
   - **Phase 7 不做**（按 §0.a + 2026-05-30 用户指示）：
     - 请 `cbdb-user-mdb-tests` 加 12 个缺失 surface 的
@@ -714,13 +717,15 @@ BIOG basic、kinship recursive、associations 当时有形状不匹配，需要�
     - 扩展 §9 的 "Post-Phase-6 status (2026-05-30)" 段，
       加一个 "Post-Phase-7 status (2026-05-30)" 子节，把
       新的 suite-count 契约锚定到 Phase 7 close
-      （388 passed / 7 skipped / 1 xfailed，commit
-      `46e8186`）。
+      （387 passed / 7 skipped / 1 xfailed，commit
+      `46e8186`；Phase 8 审计修正了 Phase 8a-era 的 "388 /
+      7 / 1" 说法，详见 Post-Phase-9 status 块里的每个
+      sub-phase 算术）。
     - 刷新 `README.md` 的 "Repository status" 段：
       "Phases 1–6 landed (2026-05-27 → 2026-05-30).
       Current suite: 354 passed, 6 skipped, 1 xfailed."
       改为 "Phases 1–7 landed (2026-05-27 → 2026-05-30).
-      Current suite: 388 passed, 7 skipped, 1 xfailed."
+      Current suite: 387 passed, 7 skipped, 1 xfailed."
       架构图说明里加一句 `ParityHostDaemon` 已可用。
     - 把上面所有内容原样镜像到 `WORK_PLAN.zh-CN.md`——
       §0 的拆分、每个 Phase 7 子阶段 ✅ 标记、Phase 7
