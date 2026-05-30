@@ -94,7 +94,13 @@ Access has `CmdImport*` (read tab/comma-separated input file → form selection 
   module, or the existing module answers a structurally different
   question). Avalonia-side coverage for all retired surfaces is
   preserved by `tests/test_phase5c_person_mirror_vs_host.py`.
-- **Closed-by-tier-2** (originally listed as shape-mismatched but resolved by asking the per-person question on both sides): associations and kinship (non-recursive). The kinship `expandNetwork=true` graph traversal is queued as a follow-up — requires porting the `KinshipTraversalState` machine to Python.
+- **Kinship `expandNetwork=true` (BFS expansion)**: Avalonia-side
+  coverage runs via the ParityHost; no §0.b-compliant Access oracle
+  exists (cbdb_replay's `LookAtKinship` rejects multi-hop with
+  NotImplementedError). A pair test for this branch would require
+  `cbdb-user-mdb-tests` to land a multi-hop variant; reporting that
+  branch as Avalonia-only via Phase 5c is the §0.b-compliant
+  treatment for now.
 - **No-pair (genuinely misaligned)**: GroupData demographics. Documented in `reports/known_issues.md` as Access-only.
 - **Access-only — no Avalonia analogue**: Texts, Networks, AssociationPairs, Place. Documented in `reports/known_issues.md` as Avalonia gaps; nothing to compare until those services land in `cbdb-desktop-app`.
 - **Avalonia-only**: PickerData + diagnostics (DatabaseHealth/Index); not user-facing query results
