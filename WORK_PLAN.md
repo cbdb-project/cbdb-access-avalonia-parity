@@ -440,26 +440,39 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
   the integration template every Phase 6 rewrite copies).
 
   - **6a — rewrite the bridges that have a cbdb_replay analogue**.
-    Two surfaces have a `cbdb_replay.lookat*` module available:
+    Only ONE surface qualifies — see "discovery" note below:
 
       | surface       | upstream module                  | current bridge                     |
       |---------------|----------------------------------|------------------------------------|
       | kinships      | `cbdb_replay.lookatkinship`      | `cbdb_parity.access_kinships`      |
-      | associations  | `cbdb_replay.lookatassociations` | `cbdb_parity.access_associations`  |
 
     Replace `_ACCESS_SQL` + pyodbc plumbing with the
     `_ensure_cbdb_replay_on_path` + `replay_run` + field projection
     pattern (template: `cbdb_parity/access_office_query.py`).
-    Update `tests/test_phase4_kinships_pair.py` and
-    `tests/test_phase4_associations_pair.py` to thread the
+    Update `tests/test_phase4_kinships_pair.py` to thread the
     `access_tests_repo` kwarg through. Codex review.
 
-  - **6b — delete the bridges that have NO cbdb_replay analogue**.
-    Eleven surfaces have no upstream-validated Access query script
-    — they were only ever touched through the Access UI by hand:
+    **Discovery (2026-05-30, mid-execution)**: associations was
+    originally planned for 6a alongside kinships, but on inspection
+    `cbdb_replay.lookatassociations.run` takes only
+    `(assoc_codes, addr_ids, year_filter)` — there is no
+    `person_id` input. It answers "rows matching these assoc_codes",
+    which is a structurally different question from Avalonia's
+    per-person `GetAssociationsAsync(personId)`. Wrapping it to
+    answer the per-person question requires Python post-filtering
+    on `c_personid`, which is the orchestration-side equivalent of
+    transcription and violates §0.b. Associations therefore
+    *moves down to 6b* (deletion) — same treatment as the 11
+    surfaces that never had a cbdb_replay analogue.
+
+  - **6b — delete the bridges that have NO cbdb_replay analogue
+    for the per-person question**. Twelve surfaces (eleven without
+    any `cbdb_replay.lookat*` module + associations whose
+    `lookatassociations` answers a structurally different question
+    per the 6a discovery):
 
     ```
-    addresses, altnames, biog_basic, detail,
+    addresses, altnames, associations, biog_basic, detail,
     entries (per-person), events, institutions,
     possessions, postings, sources,
     statuses_person, writings
@@ -470,12 +483,14 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     The Avalonia-side oracle for these 11 surfaces is preserved by
     `tests/test_phase5c_person_mirror_vs_host.py`, which is unaffected.
 
-    Files to remove (12 + 12; postings counts in here even though
-    its bridge was already a stub):
+    Files to remove (13 + 13; postings counts in here even though
+    its bridge was already a stub; associations was relocated from
+    6a per the discovery above):
 
     ```
     cbdb_parity/access_addresses.py    tests/test_phase4_addresses_pair.py
     cbdb_parity/access_altnames.py     tests/test_phase4_altnames_pair.py
+    cbdb_parity/access_associations.py tests/test_phase4_associations_pair.py
     cbdb_parity/access_biog_basic.py   tests/test_phase4_biog_basic_pair.py
     cbdb_parity/access_detail.py       tests/test_phase4_detail_pair.py
     cbdb_parity/access_entries.py      tests/test_phase4_entries_pair.py
@@ -514,13 +529,15 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     cbdb_replay analogue so Phase 4 stays out of scope per 6b.
     Codex review.
 
-  - **Expected test-suite delta**:
-    - 12 Phase 4 tests deleted (6b) — pure subtraction.
-    - 2 Phase 4 tests rewritten (6a) — same count, different backend.
+  - **Expected test-suite delta** (revised after 6a discovery):
+    - 13 Phase 4 tests deleted (6b) — pure subtraction (was 12; +1
+      for associations relocation).
+    - 1 Phase 4 test rewritten (6a) — same count, different backend
+      (was 2; -1 for associations relocation).
     - 2 Phase 5e pair tests added (6c) — pure addition.
     - 1 Phase 5c case added (6d) — pure addition.
 
-    Current floor: 364 passed. Projected: ~355 passed. The 12-test
+    Current floor: 364 passed. Projected: ~354 passed. The 13-test
     drop is the explicit cost of enforcing §0.b — those tests were
     asserting "my hand-written SQL == upstream's SQL", which the
     new rule classifies as a false oracle.

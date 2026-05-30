@@ -327,6 +327,35 @@ AND the scope cbdb_replay does NOT yet cover):
   filters out orphan-kin person fixtures. Su Shi (1762) has no
   orphan kin today, so the current pair test passes.
 
+### associations_basic_person — lookatassociations answers a different question (added 2026-05-30)
+
+- **First observed**: 2026-05-30 during Phase 6a rewrite
+- **Side**: Access (cbdb_replay scope)
+- **Class**: question-shape mismatch
+- **Description**: `cbdb_replay.lookatassociations.AssocQueryInputs`
+  exposes `(assoc_codes, addr_ids, year_filter)` but **no
+  `person_id`**. Its SQL is `WHERE c_assoc_code IN (...)`, which
+  answers "rows matching these association codes", not "all
+  associations of person X" — the latter is what Avalonia's
+  `GetAssociationsAsync(personId)` answers.
+- **Root cause**: `LookAtAssociations` was historically used in the
+  Access UI as a code-driven cross-person query (e.g. "all rows
+  where assoc_code = 'teacher'"). Avalonia's per-person accessor
+  is a different question shape that cbdb_replay has no module for.
+- **Coverage that REMAINS**: Phase 5c mirror-vs-host
+  (`test_phase5c_person_mirror_vs_host.py`) exercises the
+  Avalonia side, so the upstream-C# half is still gated.
+- **Suppress rationale**: per §0.b, the only acceptable way to
+  cross-engine check would be to (a) fetch all assoc_codes used by
+  the target person, (b) call lookatassociations with those codes,
+  (c) post-filter rows by personid — that orchestration is itself
+  a transcription pattern (Python mediates a derivation upstream
+  doesn't perform).
+- **Suppress until**: `cbdb-user-mdb-tests` adds a per-person
+  variant of LookAtAssociations. Tracked alongside the
+  `tier2_per_person` group; Phase 6b removes the bridge and the
+  pair test in the same commit batch.
+
 ### tier2_per_person — 11 surfaces have no Access ground truth (added 2026-05-30)
 
 - **First observed**: 2026-05-30
