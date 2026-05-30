@@ -130,9 +130,34 @@ def _assert_rows_equal(
             )
 
 
-# Person 1762 (Wang Anshi) has rich Tier-2 data — most accessors
-# return a useful row set. A few don't (sources is empty); we
-# fall back to person 1 (Confucius / 孔丘) for those.
+# Phase 7d multi-fixture: every per-person accessor is now
+# parametrised across three fixtures spanning two dynasties and
+# different data densities. The original single-fixture run
+# (Wang Anshi only) gave us no signal on dynasty-boundary edge
+# cases (Tang names use Pinyin differently from Song, alt-names
+# distributions differ), and a regression that broke one branch
+# of the upstream SQL on Tang-era rows could pass the suite.
+#
+# Verified at fixture-design time (2026-05-31): all three persons
+# exist in BIOG_MAIN AND have non-empty rows for at least one of
+# the high-fanout accessors (addresses, kinships, writings).
+#
+# - 1762 = Wang Anshi (Northern Song, c_index_year=1021) —
+#   canonical Phase 5c-1 fixture; rich across every accessor.
+# - 32540 = Li Bai (Tang, c_index_year=701) — different dynasty,
+#   different Pinyin convention, sparser alt-names.
+# - 3257 = Zhu Xi (Southern Song, c_index_year=1130) — major
+#   neo-Confucian scholar; dense writings + institutions.
+_PERSON_FIXTURES: tuple[tuple[int, str], ...] = (
+    (1762, "wang_anshi"),
+    (32540, "li_bai"),
+    (3257, "zhu_xi"),
+)
+
+# Tests that only assume a Tier-2 row exists on the canonical
+# fixture (e.g. the older 5c-1/5c-2 single-row checks) still use
+# this as a default; the parametrised variant is the multi-fixture
+# extension.
 _FIXTURE_PERSON = 1762
 
 
@@ -197,61 +222,102 @@ def _run_person_pair(
 # pairs are currently byte-equivalent).
 
 
-def test_addresses_mirror_vs_host() -> None:
+@pytest.mark.parametrize("person_id,label", _PERSON_FIXTURES, ids=lambda v: str(v))
+def test_addresses_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_addresses import addresses_query
-    _run_person_pair("addresses", addresses_query, id_fields=_MIRROR_ID_FIELDS["addresses"])
+    _run_person_pair(
+        "addresses", addresses_query,
+        id_fields=_MIRROR_ID_FIELDS["addresses"], person_id=person_id,
+    )
 
 
-def test_altnames_mirror_vs_host() -> None:
+@pytest.mark.parametrize("person_id,label", _PERSON_FIXTURES, ids=lambda v: str(v))
+def test_altnames_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_altnames import altnames_query
-    _run_person_pair("altnames", altnames_query, id_fields=_MIRROR_ID_FIELDS["altnames"])
+    _run_person_pair(
+        "altnames", altnames_query,
+        id_fields=_MIRROR_ID_FIELDS["altnames"], person_id=person_id,
+    )
 
 
-def test_writings_mirror_vs_host() -> None:
+@pytest.mark.parametrize("person_id,label", _PERSON_FIXTURES, ids=lambda v: str(v))
+def test_writings_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_writings import writings_query
-    _run_person_pair("writings", writings_query, id_fields=_MIRROR_ID_FIELDS["writings"])
+    _run_person_pair(
+        "writings", writings_query,
+        id_fields=_MIRROR_ID_FIELDS["writings"], person_id=person_id,
+    )
 
 
-def test_entries_mirror_vs_host() -> None:
+@pytest.mark.parametrize("person_id,label", _PERSON_FIXTURES, ids=lambda v: str(v))
+def test_entries_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_entries import entries_query
-    _run_person_pair("entries", entries_query, id_fields=_MIRROR_ID_FIELDS["entries"])
+    _run_person_pair(
+        "entries", entries_query,
+        id_fields=_MIRROR_ID_FIELDS["entries"], person_id=person_id,
+    )
 
 
-def test_statuses_person_mirror_vs_host() -> None:
+@pytest.mark.parametrize("person_id,label", _PERSON_FIXTURES, ids=lambda v: str(v))
+def test_statuses_person_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_statuses_person import statuses_person_query
-    _run_person_pair("statuses", statuses_person_query, id_fields=_MIRROR_ID_FIELDS["statuses"])
+    _run_person_pair(
+        "statuses", statuses_person_query,
+        id_fields=_MIRROR_ID_FIELDS["statuses"], person_id=person_id,
+    )
 
 
-def test_possessions_mirror_vs_host() -> None:
+@pytest.mark.parametrize("person_id,label", _PERSON_FIXTURES, ids=lambda v: str(v))
+def test_possessions_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_possessions import possessions_query
-    _run_person_pair("possessions", possessions_query, id_fields=_MIRROR_ID_FIELDS["possessions"])
+    _run_person_pair(
+        "possessions", possessions_query,
+        id_fields=_MIRROR_ID_FIELDS["possessions"], person_id=person_id,
+    )
 
 
-def test_events_mirror_vs_host() -> None:
+@pytest.mark.parametrize("person_id,label", _PERSON_FIXTURES, ids=lambda v: str(v))
+def test_events_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_events import events_query
-    _run_person_pair("events", events_query, id_fields=_MIRROR_ID_FIELDS["events"])
+    _run_person_pair(
+        "events", events_query,
+        id_fields=_MIRROR_ID_FIELDS["events"], person_id=person_id,
+    )
 
 
-def test_associations_mirror_vs_host() -> None:
+@pytest.mark.parametrize("person_id,label", _PERSON_FIXTURES, ids=lambda v: str(v))
+def test_associations_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_associations import associations_query
-    _run_person_pair("associations", associations_query, id_fields=_MIRROR_ID_FIELDS["associations"])
+    _run_person_pair(
+        "associations", associations_query,
+        id_fields=_MIRROR_ID_FIELDS["associations"], person_id=person_id,
+    )
 
 
-def test_sources_mirror_vs_host() -> None:
+@pytest.mark.parametrize("person_id,label", _PERSON_FIXTURES, ids=lambda v: str(v))
+def test_sources_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_sources import sources_query
-    _run_person_pair("sources", sources_query, id_fields=_MIRROR_ID_FIELDS["sources"])
+    _run_person_pair(
+        "sources", sources_query,
+        id_fields=_MIRROR_ID_FIELDS["sources"], person_id=person_id,
+    )
 
 
-def test_institutions_mirror_vs_host() -> None:
+@pytest.mark.parametrize("person_id,label", _PERSON_FIXTURES, ids=lambda v: str(v))
+def test_institutions_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_institutions import institutions_query
-    _run_person_pair("institutions", institutions_query, id_fields=_MIRROR_ID_FIELDS["institutions"])
+    _run_person_pair(
+        "institutions", institutions_query,
+        id_fields=_MIRROR_ID_FIELDS["institutions"], person_id=person_id,
+    )
 
 
-def test_detail_mirror_vs_host() -> None:
+@pytest.mark.parametrize("person_id,label", _PERSON_FIXTURES, ids=lambda v: str(v))
+def test_detail_mirror_vs_host(person_id: int, label: str) -> None:
     """PersonBrowserService.GetDetailAsync — returns a SINGLE
     PersonDetail (not a list), so the via_host call is a dict, not a
     list. Test asserts the mirror dict and host dict match key-for-
-    key and value-for-value.
+    key and value-for-value, for each parametrised person.
     """
     cfg = _load_config_or_skip()
     _prereqs_or_skip(cfg.avalonia_repo)
@@ -264,21 +330,25 @@ def test_detail_mirror_vs_host() -> None:
 
     avalonia_data = cfg.avalonia_repo / "Cbdb.App.Data"
     mirror_rows = detail_query(
-        sqlite_path, _FIXTURE_PERSON, avalonia_data_dir=avalonia_data,
+        sqlite_path, person_id, avalonia_data_dir=avalonia_data,
     )
     host_row = invoke_parity_host(
-        "detail", sqlite_path, {"person_id": _FIXTURE_PERSON},
+        "detail", sqlite_path, {"person_id": person_id},
         avalonia_repo=cfg.avalonia_repo,
     )
-    assert len(mirror_rows) == 1, f"mirror returned {len(mirror_rows)} detail rows"
-    assert isinstance(host_row, dict), f"host returned {type(host_row).__name__}"
+    assert len(mirror_rows) == 1, (
+        f"detail/{label}: mirror returned {len(mirror_rows)} rows"
+    )
+    assert isinstance(host_row, dict), (
+        f"detail/{label}: host returned {type(host_row).__name__}"
+    )
     # `fields` (PersonFieldValue[]) is the dynamic-field block the
     # upstream PersonDetail record populates from PersonExtra2024
     # lookups; the mirror never ported it. 5c-final replaces the
     # mirror with a via_host delegate, at which point this gap
     # disappears. Allow it here so the rest of the schema is gated.
     _assert_rows_equal(
-        "detail", mirror_rows, [host_row],
+        f"detail/{label}", mirror_rows, [host_row],
         ignore_fields=frozenset({"fields"}),
     )
 
