@@ -845,10 +845,11 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
 ### Post-Phase-9 status (2026-05-30)
 
 Phase 9b 收尾。Phase 7 当时是 Phase 6 close 看到的本 repo
-backlog；执行中 Phase 7 收尾审计带出 Phase 8 的八个项目，
-Phase 8 收尾审计又带出 Phase 9 的两个项目（Phase 7
-sub-phase prose 改成回顾式，加 AGENTS.md Phase 7/8 操作
-段）。Phase 9 关闭后，suite-count 契约是：
+backlog；执行中 Phase 7 收尾审计带出 Phase 8 的四个子阶段
+（8a daemon binding、8b 文案 sweep、8c report-dir 清理、
+8d 回顾），Phase 8 收尾审计又带出 Phase 9 的两个子阶段
+（9a Phase 7 sub-phase prose 改成回顾式、9b AGENTS.md
+Phase 7/8 操作段）。Phase 9 关闭后，suite-count 契约是：
 
 - **387 passed**（Phase 6 close 时是 354 → +33 净 delta：
   Phase 7a/7c/7d/7e/7f/7h 加了 34 个 passing case，然后

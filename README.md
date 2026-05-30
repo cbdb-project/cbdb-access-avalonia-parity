@@ -84,7 +84,7 @@ scripts via Python (Phase 3c/3d/3e + Phase 6a).
 
 ## Repository status
 
-Phases 1–8 landed (2026-05-27 → 2026-05-30). Current suite:
+Phases 1–9 landed (2026-05-27 → 2026-05-30). Current suite:
 **387 passed, 7 skipped, 1 xfailed**. Implementation is tracked
 phase-by-phase in `WORK_PLAN.md` (English) and
 `WORK_PLAN.zh-CN.md` (Chinese, authoritative for project
@@ -168,6 +168,30 @@ cbdb-parity-summary --reports-dir <path>
 | `MYSQL2ACCESS_DIR` | Local `mysql2access` working folder (Datadump → Access port). |
 | `ACCESS_MYSQL_TRANSFER_REPO` | Local clone of [accessAndMySQLTransfer](https://github.com/cbdb-project/accessAndMySQLTransfer). |
 | `BUILD_OUTPUT_DIR` | Scratch folder for generated `cbdb_data.mdb` and `cbdb.sqlite` (gitignored). |
+
+### MariaDB intermediate cache (Phase 1.6 — default import source)
+
+`cbdb-parity-build-all` defaults to importing the Datadump
+into a Docker MariaDB container and reading from there into
+both builders. Eight env keys configure that:
+
+| Key | What it is |
+|---|---|
+| `MARIADB_HOST` | Hostname of the MariaDB instance (default `localhost`). |
+| `MARIADB_PORT` | Port (default `3306`). |
+| `MARIADB_USER` | User with `CREATE / DROP / INSERT` on `MARIADB_DATABASE`. |
+| `MARIADB_PASSWORD` | Password. Required; fail-loud if absent. |
+| `MARIADB_DATABASE` | Database name the Datadump imports into. |
+| `MARIADB_CONTAINER_NAME` | Informational; used only when auto-launch is on. |
+| `MARIADB_FORCE_REIMPORT` | `1` = drop and reimport even when the in-DB SHA matches; `0` = trust the cache. |
+| `MARIADB_AUTO_LAUNCH` | `1` = `docker start <CONTAINER_NAME>` if the container is found stopped; `0` = require the user to bring it up. |
+
+The MariaDB cache is part of OUR pipeline; it does NOT relax
+the "never substitute pre-existing user mdb files" rule from
+WORK_PLAN §1 — we populate the cache from the Datadump
+ourselves, gated by an in-DB SHA provenance row. The pre-1.6
+direct path (`source='datadump'`) is retained as a fallback for
+non-Docker hosts.
 
 `.env.sample` is committed with placeholder values; `.env` is gitignored.
 

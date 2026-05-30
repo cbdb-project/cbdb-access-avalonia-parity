@@ -255,7 +255,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
   - ✅ 3d (Office pair): `cbdb_parity.avalonia_office_query` + `cbdb_parity.access_office_query` + `tests/test_phase3d_office_pair.py`. Field naming aligns with `Cbdb.App.Core.OfficeQueryRecord` snake-case property names; the 57/64 reader swap (SQL columns vs constructor positions) is mirrored in `_sql_row_to_record_row`. Access bridge rejects request branches `cbdb_replay/lookatoffice` cannot faithfully replay (person_keyword / dynasty_ids / place ids when set / empty office_codes) so the parity report doesn't blame Avalonia for mismatches the bridge silently caused. Codex iterated v1..v7 clean.
   - ✅ 3e (Status pair): `cbdb_parity.avalonia_status_query` + `cbdb_parity.access_status_query` + `tests/test_phase3e_status_pair.py`. Same shape as 3d (positional record-order, unsupported-branch rejection, post-fetch label sort, strict-pipeline path-match gate). 36-field record; no positional swap (the C# reader's column indices match SELECT order directly). Codex queued behind rate-limit reset.
 
-- **Phase 4 (complete)** — query-by-query coverage expansion. Final state: **17 paired tests landed end-to-end (387 passed, 2 documented-upstream-skip)**.
+- **Phase 4 (complete; superseded by Phase 5c-final + Phase 6)** — query-by-query coverage expansion. The pair-test surfaces and implementation pattern listed below are the **Phase 4 landing state** at 2026-05-28, kept for commit-history context. **Phase 5c-final retired the Python mirror layer entirely**, and **Phase 6b removed 13 of the per-person pair tests** for §0.b non-compliance (no `cbdb_replay.lookat*` analogue). The current pair-test count and §0.b-compliant surfaces are tracked in §9 "Post-Phase-9 status" below — do NOT take the Phase 4 numbers here as live.
   - ✅ **Tier 1 strict-same-shape** (Phase 3): entry / office / status — `tests/test_phase3{c,d,e}_*_pair.py`.
   - ✅ **Tier 1 shape-negotiated** (Phase 4):
     - **BIOG basic** — `tests/test_phase4_biog_basic_pair.py` (SearchAsync no-keyword branch). 50/50 matching at limit=50.
@@ -266,17 +266,25 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     - altnames, entries, addresses, writings, statuses, possessions, events, kinships, associations, sources, institutions, detail (PASS).
     - postings auto-skips on the documented upstream `pto.c_appt_type_code` schema bug (same bug as office_basic); same single upstream fix re-arms both.
   - ✅ **Access-only categories** (Texts / Networks / AssociationPairs / Place): documented as Avalonia gaps in `reports/known_issues.md` under `avalonia_gap`. Nothing to compare until Avalonia implements the corresponding services in `cbdb-desktop-app`.
-  - Established Tier 2 implementation pattern (codified across 13 accessors):
+  - **HISTORICAL — retired in Phase 5c-final + Phase 6**.
+    Established Tier 2 implementation pattern at Phase 4 landing
+    (codified across 13 accessors). Phase 5c-final retired
+    steps 1, 3, 4, 5; Phase 6a moved kinships to
+    `cbdb_replay.lookatkinship`; Phase 6b deleted the bridges
+    and pair tests for the other 12 surfaces (no
+    `cbdb_replay.lookat*` analogue → §0.b non-compliant). Do
+    NOT use this pattern in new code; §0.b explicitly forbids
+    hand-mirroring upstream SQL.
     1. extract C# SQL via `find_sql_block(cs_path, discriminator)` where the discriminator is a token unique to that block (often a raw alias like `bad.c_sequence` or table-qualified column);
     2. splice raw ID columns into the SELECT for stable diff-keying (anchor: a unique substring just before `FROM`);
     3. hand-mirror the Access SQL with parenthesised chained LEFT JOINs (N joins → N−1 opening parens before the base table) and SQLite→Access expression rewrites (`||`→`&`, `CASE`→`IIf`, `LIMIT/OFFSET`→`TOP n` + Python slice, `WITH`→inline subquery);
     4. apply `JoinDisplay` post-processing identically on both sides;
     5. coerce bool columns via `_to_bool_or_none` for `c_*_intercalary`/`c_natal`/etc.;
     6. choose a diff key that's unique-per-person (sometimes requires the natural key tail — e.g. ASSOC_DATA needs `c_text_title` because multiple texts can document the same logical association).
-  - Infrastructure helpers added during Phase 4:
-    - `cbdb_parity.avalonia_query_sql.extract_sql_blocks` now also extracts non-interpolated `@"..."` C# verbatim strings (used throughout `SqlitePersonBrowserService.cs`), in source order, while deliberately excluding interpolated `$@"..."` / `@$"..."` whose `{placeholder}` substitutions aren't valid raw SQL.
-    - `cbdb_parity.access_query._replay_row_to_avalonia_shape` (and the office/status variants) coerce pandas-NaN → None so SQL-NULL columns don't surface as 198/200 spurious mismatches.
-    - Shared `_join_display` / `_to_bool_or_none` helpers in `cbdb_parity.avalonia_altnames` and `cbdb_parity.avalonia_addresses` are reused across all Tier 2 bridges to keep post-processing identical.
+  - **HISTORICAL — also retired**. Infrastructure helpers added during Phase 4:
+    - `cbdb_parity.avalonia_query_sql.extract_sql_blocks` — module deleted in Phase 5c-final.
+    - `cbdb_parity.access_query._replay_row_to_avalonia_shape` (and office/status variants) coerce pandas-NaN → None; this is still live because the Phase 3c/3d/3e bridges that produced it still drive `cbdb_replay.lookat*` directly under §0.b.
+    - Shared `_join_display` / `_to_bool_or_none` helpers in `cbdb_parity.avalonia_altnames` and `cbdb_parity.avalonia_addresses` — deleted in Phase 5c-final + Phase 6b (the helpers had no remaining callers once the per-surface bridges came down).
 
 - **Phase 5 (next, planned 2026-05-29 onwards)** — pivot to direct
   .NET Avalonia execution via a new `Cbdb.App.ParityHost` console.
@@ -1170,12 +1178,13 @@ close-out.
 
 ### Post-Phase-9 status (2026-05-30)
 
-Phase 9b close-out. Phase 7 landed in eight commits, the
-post-Phase-7 audit surfaced eight Phase 8 items, and the
-post-Phase-8 audit surfaced two Phase 9 items
-(retrospective prose conversion for Phase 7 sub-phases, and
-AGENTS.md Phase 7/8 operational notes). With Phase 9 closed,
-the suite-count contract is:
+Phase 9b close-out. Phase 7 landed in eight sub-phases (7a–7h),
+the post-Phase-7 audit surfaced four Phase 8 sub-phases
+(8a daemon binding, 8b prose sweep, 8c report-dir cleanup,
+8d retrospective), and the post-Phase-8 audit surfaced two
+Phase 9 sub-phases (9a retrospective prose conversion for
+Phase 7 sub-phases, 9b AGENTS.md Phase 7/8 operational notes).
+With Phase 9 closed, the suite-count contract is:
 
 - **387 passed** (was 354 at Phase 6 close → +33 net delta:
   Phase 7a/7c/7d/7e/7f/7h added 34 passing cases, then
