@@ -979,9 +979,10 @@ in this repo:**
   `cbdb-desktop-app` requesting the upstream changes named in
   the re-arm conditions above.
 
-Phase 7 is the complete in-repo backlog. Once it ends the repo
-is in a steady-state pending upstream action on the suppressed
-entries above.
+Phase 7 was the in-repo backlog as understood at Phase 6 close;
+in execution it surfaced a small post-completion audit that
+shipped as Phase 8 — see the Post-Phase-7 status block below
+for the final close-out.
 
 ### Post-Phase-7 status (2026-05-31)
 
@@ -990,10 +991,10 @@ a codex round + push), and the post-Phase-7 audit surfaced
 eight Phase 8 items that wrapped up housekeeping. With Phase 8
 closed, the suite-count contract becomes:
 
-- **387 passed** (was 354 at Phase 6 close; +33 net additions
-  across Phase 7a/7c/7d/7e/7f/7h, and -1 because the
-  Phase 7h dedicated daemon test now shares the session
-  binding rather than spawning its own).
+- **387 passed** (was 354 at Phase 6 close → +33 net delta:
+  Phase 7a/7c/7d/7e/7f/7h added 34 passing cases, then
+  Phase 8a consolidated the dedicated daemon smoke test into
+  the session-bound path for -1, so 354 + 34 − 1 = 387).
 - **7 skipped** — all documented:
   - 3 `replay_scan[entry/…_indexyears/_entryyears]` cases
     where Avalonia EntryQueryRequest can't model
@@ -1028,8 +1029,24 @@ itself) drops from ~150s to ~61s with the
 non-host work (build pipeline, mariadb cache, lint setup)
 that the daemon can't speed up.
 
-After Phase 8 closes the repo is in a true steady-state
-pending upstream action on every documented suppression. No
+**Active suppressions and their re-arm conditions** (mirror
+of the zh-CN table; both heads carry the same list to keep
+en/zh-CN parity at the Phase 8 close):
+
+| entry | re-arm condition |
+|---|---|
+| `kinships_basic_person` (INNER vs LEFT JOIN orphan-kin gap) | `cbdb-user-mdb-tests` adds a LEFT JOIN variant of LookAtKinship, OR a parity request explicitly excludes orphan-kin fixtures. Phase 7e adds an executable assertion that pins the current gap shape. |
+| `associations_basic_person` (lookatassociations has no person_id input) | `cbdb-user-mdb-tests` adds a per-person variant of LookAtAssociations. |
+| `phase5e_lookups` (no §0.b-compliant pair for group_people / place_lookup / dynasty_lookup) | Symmetric: either `cbdb-user-mdb-tests` adds an appropriate `lookat*` module, OR `cbdb-desktop-app` converges on the existing cbdb_replay shape. |
+| `tier2_per_person` (12 surfaces with no cbdb_replay.lookat*) | `cbdb-user-mdb-tests` adds per-surface `lookat<surface>` modules. Phase 6b removed the bridges and pair tests; nothing to clean up on this side. |
+| `avalonia_gap (legacy)` Texts/Networks/AssociationPairs/Place | Each surface clears independently when its service lands in `cbdb-desktop-app`. The umbrella entry stays open until all four are present. |
+
+Every re-arm condition above needs an upstream change — per
+§0.a we don't make those from this repo, and per the
+2026-05-30 user directive we don't file issues to request
+them. The suppressions wait on independent upstream action.
+
+After Phase 8 closes the repo is in a true steady-state. No
 further in-repo work is queued; the next change should arrive
 either as a downstream consumer clearing an obsolete
 suppression or as an upstream commit re-arming a previously

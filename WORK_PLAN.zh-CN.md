@@ -699,10 +699,10 @@ Phase 8d 收尾。Phase 7 在八个 commit 内落地（每个 + codex
 round + push），Phase 7 收尾审计又带出 Phase 8 的八个项目
 收完整体框架。Phase 8 关闭后，suite-count 契约变为：
 
-- **387 passed**（Phase 6 close 时是 354；Phase 7
-  7a/7c/7d/7e/7f/7h 净加了 33，Phase 8 又 -1 因为 7h
-  那个专用 daemon 测试现在通过 session binding 跑，
-  不再自己起 ParityHostDaemon）。
+- **387 passed**（Phase 6 close 时是 354 → +33 净 delta：
+  Phase 7a/7c/7d/7e/7f/7h 加了 34 个 passing case，然后
+  Phase 8a 把 7h 那个专用 daemon smoke test 收编到
+  session-bound 路径 -1，所以 354 + 34 − 1 = 387）。
 - **7 skipped**——都有文档：
   - 3 个 `replay_scan[entry/…_indexyears/_entryyears]`
     case，Avalonia EntryQueryRequest 无法表达
