@@ -395,11 +395,15 @@ AND the scope cbdb_replay does NOT yet cover):
   invocation is `cbdb_replay.lookat*`. None of the three
   available modules (`lookatplace`, `lookatgroupdata`, none for
   dynasty) answer the Avalonia question shape.
-- **Suppress until**: `cbdb-user-mdb-tests` adds either
-  (a) a `lookat_place_options` query for the dropdown shape, or
-  (b) a `lookatgroupdata` variant whose return shape matches
-  `GroupPeopleQueryResult`'s category sub-tables, or
-  (c) a `lookatdynasty` lookup module.
+- **Suppress until**: either side gains a matching question
+  shape. On the Access side that means `cbdb-user-mdb-tests`
+  adding (a) a `lookat_place_options` query for the dropdown
+  shape, or (b) a `lookatgroupdata` variant whose return shape
+  matches `GroupPeopleQueryResult`'s category sub-tables, or
+  (c) a `lookatdynasty` lookup module. Symmetrically, an
+  Avalonia-side change that converges onto the existing
+  cbdb_replay shape (e.g. a `GetPeopleAtPlacesAsync` that
+  matches `lookatplace`) would re-arm the same pair test.
 
 ### tier2_per_person — 12 surfaces have no Access ground truth (added 2026-05-30)
 
