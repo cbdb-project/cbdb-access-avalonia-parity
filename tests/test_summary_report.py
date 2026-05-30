@@ -141,10 +141,15 @@ def test_cli_main_rewrites_summary(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Phase 7c — cbdb-parity-summary CLI should rewrite
-    reports/SUMMARY.md and exit 0."""
+    """Phase 7c — cbdb-parity-summary CLI must REWRITE
+    reports/SUMMARY.md, not silently append/refuse. Codex round
+    flagged that the original test would false-pass if the CLI
+    only created new files; we now pre-seed a sentinel SUMMARY.md
+    and assert the old content is gone after the rewrite."""
     rdir = tmp_path / "reports"
     _seed_query_dir(rdir, "q_pass", _PASSING)
+    sentinel = "STALE-CONTENT-THAT-MUST-BE-REPLACED"
+    (rdir / "SUMMARY.md").write_text(sentinel, encoding="utf-8")
 
     monkeypatch.setattr(sys, "argv", ["cbdb-parity-summary", "--reports-dir", str(rdir)])
     rc = cli_main()
@@ -153,8 +158,32 @@ def test_cli_main_rewrites_summary(
     captured = capsys.readouterr()
     out = rdir / "SUMMARY.md"
     assert out.exists()
-    assert "Total paired queries**: 1" in out.read_text(encoding="utf-8")
+    written = out.read_text(encoding="utf-8")
+    assert sentinel not in written, (
+        "Stale content survived; CLI did not actually rewrite "
+        "the file."
+    )
+    assert "Total paired queries**: 1" in written
     assert str(out) in captured.out
+
+
+def test_cli_main_reports_dir_is_a_file_exits_2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Codex round flagged that --reports-dir accepted any Path
+    that `exists()`. A file path should be rejected with the same
+    exit code as a missing dir (2), not crash later in
+    write_summary's iterdir."""
+    f = tmp_path / "not_a_dir.txt"
+    f.write_text("hi", encoding="utf-8")
+    monkeypatch.setattr(sys, "argv", ["cbdb-parity-summary", "--reports-dir", str(f)])
+    rc = cli_main()
+    assert rc == 2
+    captured = capsys.readouterr()
+    assert "must be a directory" in captured.out
+    assert str(f) in captured.out
 
 
 def test_cli_main_missing_reports_dir_exits_2(

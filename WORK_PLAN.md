@@ -747,7 +747,8 @@ Phase 7b close-out, added 2026-05-31. Snapshot of the suite and
 suppressions at the moment Phase 6 closed and Phase 7 was
 opened.
 
-**Suite-count contract (canonical numbers at HEAD post-Phase-6):**
+**Suite-count contract (canonical numbers at Phase 6 close —
+commit `dddedc1`):**
 
 - 354 passed
 - 6 skipped (all with explicit, documented reasons — see below)
@@ -757,10 +758,12 @@ opened.
   inline in `tests/test_phase4_replay_scan.py` and in
   `coverage/replay_scan_results.md`).
 
-Any change that moves these numbers should add the delta to its
-commit message so future readers can reconstruct the diff. Phase
-7 will push the passed count up additively (no §0.b regressions
-expected); see Phase 7 sub-phase delta notes above.
+These numbers anchor at the Phase 6 close commit, not at HEAD —
+Phase 7 sub-phases push the passed count up additively (no
+§0.b regressions expected; see Phase 7 sub-phase delta notes
+above). Any change that moves the numbers should record the
+delta in its commit message so future readers can reconstruct
+the diff.
 
 **Current §0.b-compliant pair tests (4):** Tier 1 entry / office /
 status via `cbdb_replay.lookat{entry,office,status}` (Phase 3c/3d/
@@ -775,8 +778,14 @@ condition that would re-arm each:**
 | `associations_basic_person` (lookatassociations has no person_id input — question-shape mismatch) | cbdb-user-mdb-tests adds a per-person variant of LookAtAssociations. |
 | `phase5e_lookups` (no §0.b-compliant pair for group_people / place_lookup / dynasty_lookup) | Symmetric: either cbdb-user-mdb-tests adds an appropriate `lookat*` module (place options / GroupPeopleQueryResult-shaped variant / `lookatdynasty`), OR cbdb-desktop-app converges on the existing cbdb_replay question shape (e.g. `GetPeopleAtPlacesAsync` matching `lookatplace`). |
 | `tier2_per_person` (12 surfaces with no cbdb_replay.lookat* module, plus associations cross-reference) | cbdb-user-mdb-tests adds a per-surface `lookat<surface>` module. Phase 6b removed the bridges and pair tests; nothing to clean up downstream of this repo. |
-| `events_basic_person/postings_basic_person` legacy office_basic note | Already superseded by 5c-final + 6b; kept as historical breadcrumb only. |
-| `avalonia_gap (legacy)` Texts/Networks/AssociationPairs/Place | cbdb-desktop-app lands at least one of those services. |
+| `avalonia_gap (legacy)` Texts/Networks/AssociationPairs/Place | Each surface clears independently when its service lands in cbdb-desktop-app. The umbrella entry stays open until ALL four are present; landing one does NOT clear the row — it only narrows the remaining gap. Track per-surface progress against `coverage/avalonia_queries.yaml` rather than this row. |
+
+The `events_basic_person` / `postings_basic_person` /
+`office_basic` legacy entries in `known_issues.md` are historical
+breadcrumbs from before Phase 5c-final and Phase 6b retired the
+corresponding code paths. They are NOT active suppressions and
+have no re-arm condition — they are preserved as commit-history
+context only.
 
 All "re-arm conditions" listed above require changes in another
 repo, which is exactly why they are suppressed here: per §0.a we

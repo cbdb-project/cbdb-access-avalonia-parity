@@ -188,6 +188,18 @@ def cli_main() -> int:
             flush=True,
         )
         return 2
+    if not reports_dir.is_dir():
+        # Argparse accepts any Path; reject the "exists but is a
+        # file / symlink-to-file / device" case explicitly so the
+        # CLI emits a controlled diagnostic instead of crashing
+        # later in `write_summary()` when `reports_dir.iterdir()`
+        # raises NotADirectoryError.
+        print(
+            f"cbdb-parity-summary: --reports-dir must be a directory; "
+            f"got {reports_dir} (which exists but is not a directory).",
+            flush=True,
+        )
+        return 2
 
     out_path = write_summary(reports_dir)
     print(f"cbdb-parity-summary: wrote {out_path}", flush=True)
