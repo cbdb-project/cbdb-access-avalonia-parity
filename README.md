@@ -134,6 +134,16 @@ The pre-flight `cbdb-parity-refresh` is still callable on its own if you
 just want to `git pull --ff-only` the four external repos without
 building anything.
 
+After a parity run, regenerate the top-level dashboard with:
+
+```powershell
+cbdb-parity-summary             # writes reports/SUMMARY.md from cwd
+# or
+cbdb-parity-summary --reports-dir <path>
+```
+
+`reports/known_issues.md` is hand-maintained and is not regenerated.
+
 ## External dependencies (configured via `.env`)
 
 | Key | What it is |

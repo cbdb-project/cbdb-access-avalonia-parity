@@ -62,7 +62,19 @@ surfaces is still gated by
 
 ## Tier 3: Access-only export workflows
 
-These produce files (GIS .tab, Neo4j CSV sets, UCINet .vna, Pajek .net, Gephi .gexf) rather than UI result rows. Out of scope for query-result parity, but listed for completeness.
+> **Out of scope for this repository (WORK_PLAN §0.a / Phase 7a
+> marker added 2026-05-31).** Tier 3 entries produce file
+> artefacts (GIS `.tab`, Neo4j CSV sets, UCINet `.vna`, Pajek
+> `.net`, Gephi `.gexf`) rather than query result rows, and they
+> exist only in Access — Avalonia has no corresponding export
+> service. There is nothing to diff between two engines, so the
+> parity harness has no role here. The table below is preserved
+> as documentation of what Access does, not as a backlog. If a
+> consumer wants to validate any of these exports they should
+> open a downstream binary-equality test, not a Phase 4/5 pair
+> test under this repo.
+
+These produce files (GIS .tab, Neo4j CSV sets, UCINet .vna, Pajek .net, Gephi .gexf) rather than UI result rows.
 
 | Form | GIS | Neo4j | UCINet | Pajek | Gephi |
 |---|:---:|:---:|:---:|:---:|:---:|
@@ -78,7 +90,18 @@ These produce files (GIS .tab, Neo4j CSV sets, UCINet .vna, Pajek .net, Gephi .g
 
 ## Tier 4: import / save list helpers (per-form bulk-IO)
 
-Access has `CmdImport*` (read tab/comma-separated input file → form selection set) and `CmdSave*` (export form selection to tab file) on every code-driven form. Avalonia doesn't have analogous bulk-IO; users interact with picker dropdowns one item at a time. Not in Phase 3 scope.
+> **Out of scope for this repository (WORK_PLAN §0.a / Phase 7a
+> marker added 2026-05-31).** Tier 4 entries are file-IO
+> helpers (`CmdImport*` reads a tab/comma-separated input file
+> into the form's selection set; `CmdSave*` writes the selection
+> back to a tab file). They have no Avalonia analogue — the
+> Avalonia UI uses picker dropdowns instead — so there is no
+> Avalonia query to pair against. Even if Avalonia later grows
+> a bulk-IO surface, the question would be "does my saved tab
+> file round-trip" which is again a downstream file-equality
+> test, not a query-result diff.
+
+Access has `CmdImport*` (read tab/comma-separated input file → form selection set) and `CmdSave*` (export form selection to tab file) on every code-driven form. Avalonia doesn't have analogous bulk-IO; users interact with picker dropdowns one item at a time.
 
 ## Summary counts
 

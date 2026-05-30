@@ -135,3 +135,60 @@ def write_summary(reports_dir: Path) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(text, encoding="utf-8")
     return out
+
+
+def cli_main() -> int:
+    """Phase 7c — `cbdb-parity-summary` CLI entry point.
+
+    Renders `reports/SUMMARY.md` from whatever per-query
+    `reports/<query_id>/diff.json` files currently exist. By
+    convention the reports tree lives at `<cwd>/reports`, matching
+    every other CLI in this package.
+
+    A `--reports-dir` flag lets a caller (or a future
+    pytest session-finish hook) point at a non-default location.
+
+    Exit codes:
+      0 — SUMMARY.md was rewritten.
+      2 — `<reports-dir>` does not exist (the directory tree is
+          missing entirely; usually means the differential harness
+          hasn't been run yet). Distinguished from "no reports
+          inside the dir" because the latter is a legitimate empty
+          state and `render_summary` already represents it cleanly.
+
+    We deliberately do NOT regenerate `reports/known_issues.md` —
+    that file is hand-maintained per WORK_PLAN §7.
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        prog="cbdb-parity-summary",
+        description=(
+            "Render reports/SUMMARY.md from per-query diff.json "
+            "files. Idempotent — overwrites whatever's currently at "
+            "reports/SUMMARY.md."
+        ),
+    )
+    parser.add_argument(
+        "--reports-dir",
+        type=Path,
+        default=Path.cwd() / "reports",
+        help=(
+            "Path to the reports tree. Defaults to <cwd>/reports, "
+            "matching the layout the other cbdb-parity-* CLIs use."
+        ),
+    )
+    args = parser.parse_args()
+
+    reports_dir: Path = args.reports_dir
+    if not reports_dir.exists():
+        print(
+            f"cbdb-parity-summary: reports directory not found: "
+            f"{reports_dir}. Run the differential harness first.",
+            flush=True,
+        )
+        return 2
+
+    out_path = write_summary(reports_dir)
+    print(f"cbdb-parity-summary: wrote {out_path}", flush=True)
+    return 0

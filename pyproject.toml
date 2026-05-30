@@ -65,6 +65,7 @@ cbdb-parity-build-sqlite = "cbdb_parity.sqlite_builder:cli_main"
 cbdb-parity-build-mdb = "cbdb_parity.mdb_builder:cli_main"
 cbdb-parity-build-all = "cbdb_parity.build_all:cli_main"
 cbdb-parity-import-mariadb = "cbdb_parity.mariadb:cli_main"
+cbdb-parity-summary = "cbdb_parity.summary_report:cli_main"
 
 [build-system]
 # setuptools >= 77 is the first release with full PEP 639 support

@@ -740,3 +740,63 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
 - ✅ **LICENSE**: Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International (CC BY-NC-SA 4.0).
 - ✅ **Empty mdb bootstrap (1.3b)**: `pypyodbc.win_create_mdb()` — empirically verified to produce a 172 KB empty mdb in one call. NOT `pyodbc` (rejects non-existent file), NOT ADOX/`win32com` (heavier), NOT a committed template binary (not reproducible). `pypyodbc` becomes a new `[access]` extra dependency, used for that single function only; all other mdb operations stay on `pyodbc`.
 - ✅ **MariaDB intermediate cache (Phase 1.6)**: adopted as the default import source for both `sqlite_builder` and `mdb_builder` after the Phase 1.3b real-world build hit two Jet-specific pathologies (2 GB transaction-buffer ceiling, PK-on-duplicates `IntegrityError 23000`). The MariaDB cache is **not** a substitute for the strict-pipeline rule's prohibition on pre-existing user mdbs — it is an internal staging layer that we ourselves populate from the Datadump, gated by an in-DB SHA provenance row. The pre-1.6 `cbdb_parity.mysqldump`-direct path is retained as a fallback (`source='datadump'`) for non-Docker hosts. This decision is **complementary to** — not a substitute for — the earlier "three consecutive codex rounds → Docker MySQL fallback" trigger above, which still governs the Python-port-vs-Docker-MySQL decision **inside the sqlite builder**.
+
+### Post-Phase-6 status (2026-05-30)
+
+Phase 7b close-out, added 2026-05-31. Snapshot of the suite and
+suppressions at the moment Phase 6 closed and Phase 7 was
+opened.
+
+**Suite-count contract (canonical numbers at HEAD post-Phase-6):**
+
+- 354 passed
+- 6 skipped (all with explicit, documented reasons — see below)
+- 1 xfailed (the `entry/all_jinshi_general_song` replay scan
+  case where cbdb_replay has no ORDER BY and the truncated row
+  sets don't overlap with Avalonia's hard LIMIT cap; documented
+  inline in `tests/test_phase4_replay_scan.py` and in
+  `coverage/replay_scan_results.md`).
+
+Any change that moves these numbers should add the delta to its
+commit message so future readers can reconstruct the diff. Phase
+7 will push the passed count up additively (no §0.b regressions
+expected); see Phase 7 sub-phase delta notes above.
+
+**Current §0.b-compliant pair tests (4):** Tier 1 entry / office /
+status via `cbdb_replay.lookat{entry,office,status}` (Phase 3c/3d/
+3e) + Tier 2 kinships via `cbdb_replay.lookatkinship` (Phase 6a).
+
+**Active suppressions in `reports/known_issues.md` and the
+condition that would re-arm each:**
+
+| entry | re-arm condition |
+|---|---|
+| `kinships_basic_person` (INNER vs LEFT JOIN orphan-kin gap) | cbdb-user-mdb-tests adds a LEFT JOIN variant of LookAtKinship, OR a parity request explicitly excludes orphan-kin fixtures. Phase 7e adds an executable assertion that pins the current gap shape. |
+| `associations_basic_person` (lookatassociations has no person_id input — question-shape mismatch) | cbdb-user-mdb-tests adds a per-person variant of LookAtAssociations. |
+| `phase5e_lookups` (no §0.b-compliant pair for group_people / place_lookup / dynasty_lookup) | Symmetric: either cbdb-user-mdb-tests adds an appropriate `lookat*` module (place options / GroupPeopleQueryResult-shaped variant / `lookatdynasty`), OR cbdb-desktop-app converges on the existing cbdb_replay question shape (e.g. `GetPeopleAtPlacesAsync` matching `lookatplace`). |
+| `tier2_per_person` (12 surfaces with no cbdb_replay.lookat* module, plus associations cross-reference) | cbdb-user-mdb-tests adds a per-surface `lookat<surface>` module. Phase 6b removed the bridges and pair tests; nothing to clean up downstream of this repo. |
+| `events_basic_person/postings_basic_person` legacy office_basic note | Already superseded by 5c-final + 6b; kept as historical breadcrumb only. |
+| `avalonia_gap (legacy)` Texts/Networks/AssociationPairs/Place | cbdb-desktop-app lands at least one of those services. |
+
+All "re-arm conditions" listed above require changes in another
+repo, which is exactly why they are suppressed here: per §0.a we
+cannot make those changes, and per the 2026-05-30 user directive
+we are not filing issues against those repos either. The
+documented suppressions therefore stay until upstream takes
+independent action.
+
+**Out-of-scope work that the user has confirmed will not be done
+in this repo:**
+
+- F1 — filing GitHub issues against
+  `cbdb-project/cbdb-access-avalonia-parity` (or any other repo)
+  to track entries in `known_issues.md`. The
+  `known_issues.md` file itself is the canonical action list as
+  of 2026-05-30.
+- F2 — filing GitHub issues against `cbdb-user-mdb-tests` or
+  `cbdb-desktop-app` requesting the upstream changes named in
+  the re-arm conditions above.
+
+Phase 7 is the complete in-repo backlog. Once it ends the repo
+is in a steady-state pending upstream action on the suppressed
+entries above.

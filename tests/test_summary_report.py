@@ -3,9 +3,18 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 
-from cbdb_parity.summary_report import _load_diff, render_summary, write_summary
+import pytest
+
+from cbdb_parity.summary_report import (
+    _load_diff,
+    cli_main,
+    render_summary,
+    write_summary,
+)
 
 
 def _seed_query_dir(reports_dir: Path, query_id: str, payload: dict) -> None:
@@ -125,3 +134,60 @@ def test_render_ignores_files_at_reports_root(tmp_path: Path) -> None:
     _seed_query_dir(rdir, "q_pass", _PASSING)
     text = render_summary(rdir)
     assert "Total paired queries**: 1" in text  # just q_pass, not the .md files
+
+
+def test_cli_main_rewrites_summary(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Phase 7c — cbdb-parity-summary CLI should rewrite
+    reports/SUMMARY.md and exit 0."""
+    rdir = tmp_path / "reports"
+    _seed_query_dir(rdir, "q_pass", _PASSING)
+
+    monkeypatch.setattr(sys, "argv", ["cbdb-parity-summary", "--reports-dir", str(rdir)])
+    rc = cli_main()
+    assert rc == 0
+
+    captured = capsys.readouterr()
+    out = rdir / "SUMMARY.md"
+    assert out.exists()
+    assert "Total paired queries**: 1" in out.read_text(encoding="utf-8")
+    assert str(out) in captured.out
+
+
+def test_cli_main_missing_reports_dir_exits_2(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Distinct exit code (2) for the case where the reports tree
+    doesn't exist at all — distinguishes "harness hasn't run" from
+    "harness ran but produced no reports" (the latter is a legitimate
+    empty state that cli_main reports normally with exit 0)."""
+    missing = tmp_path / "reports_does_not_exist"
+    monkeypatch.setattr(sys, "argv", ["cbdb-parity-summary", "--reports-dir", str(missing)])
+    rc = cli_main()
+    assert rc == 2
+
+    captured = capsys.readouterr()
+    assert "not found" in captured.out
+    assert str(missing) in captured.out
+
+
+def test_cli_main_default_reports_dir_uses_cwd(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """With no `--reports-dir` flag the CLI should resolve to
+    `<cwd>/reports`, matching the convention every other
+    cbdb-parity-* CLI uses."""
+    rdir = tmp_path / "reports"
+    _seed_query_dir(rdir, "q_pass", _PASSING)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["cbdb-parity-summary"])
+    rc = cli_main()
+    assert rc == 0
+    assert (rdir / "SUMMARY.md").exists()
