@@ -15,13 +15,13 @@ These are the high-value paired queries that should land first in the differenti
 
 | # | Query | Access (id, form, command) | Avalonia (service, method) | Status |
 |---|---|---|---|---|
-| 1 | **Biographic basic** | _(no Access test-driven form; closest analogue is Form_LookAtPeople which has no automated coverage)_ | `IPersonBrowserService.SearchAsync(keyword, limit, offset)` | ✅ paired — `tests/test_phase4_biog_basic_pair.py` (no-keyword branch; keyword/personId branches queued as follow-ups) |
+| 1 | **Biographic basic** | _(no Access test-driven form; closest analogue is Form_LookAtPeople which has no automated coverage)_ | `IPersonBrowserService.SearchAsync(keyword, limit, offset)` | 🆕 avalonia-only — Phase 4 pair removed in Phase 6b (no `cbdb_replay.lookat*` analogue; `tier2_per_person` in `reports/known_issues.md`). Avalonia-side coverage continues via `tests/test_phase5c_person_mirror_vs_host.py::test_biog_basic_mirror_vs_host` (no-keyword today; keyword case added in Phase 6d). |
 | 2 | **Entry codes query** | `entry_basic_search` · Form_LookAtEntry · CmdQuery | `IEntryQueryService.QueryAsync` | ✅ paired |
 | 3 | **Office query** | `office_basic_search` · Form_LookAtOffice · CmdQuery | `IOfficeQueryService.QueryAsync` | ✅ paired |
 | 4 | **Status query** | `status_basic_search` · Form_LookAtStatus · CmdQuery | `IStatusQueryService.QueryAsync` | ✅ paired |
 | 5 | **Texts/bibliography** | `texts_basic_search` · Form_LookAtTexts · CmdQuery | _none_ | ⚠️ access-only |
-| 6 | **Associations** | `assoc_basic_search` · Form_LookAtAssociations · CmdQuery — *code/dynasty-filtered people list* | `IPersonBrowserService.GetAssociationsAsync(personId)` — *per-person associations* | ✅ paired (per-person shape) — `tests/test_phase4_associations_pair.py` answers "associations of person X" on both sides via raw SQL. The Access form's code-filter list workflow is intentionally NOT mirrored — it's an Access-only UI flow, distinct from the per-person question. |
-| 7 | **Kinship** | `kinship_recursive_traversal` · Form_LookAtKinship · CmdRun — *recursive expansion from seed* | `IPersonBrowserService.GetKinshipsAsync(personId, expandNetwork=false)` direct branch (Tier 2-tested) + `expandNetwork=true` graph traversal (multi-hop with `maxUp=2, maxDown=2, maxMarriage=1, maxCollateral=1` and `maxLoop=10`) | ✅ paired (1-hop direct branch) — `tests/test_phase4_kinships_pair.py`. The expandNetwork=true traversal (Avalonia GetExpandedKinshipsAsync) is a deterministic Python-portable state machine; a recursive-traversal pair test is queued as a follow-up (requires porting `KinshipTraversalState.Extend` + `ReduceKinship` + the rank-by-Up/Down/Mar/Col tuple). |
+| 6 | **Associations** | `assoc_basic_search` · Form_LookAtAssociations · CmdQuery — *code/dynasty-filtered people list* | `IPersonBrowserService.GetAssociationsAsync(personId)` — *per-person associations* | ⚠️ question-shape mismatch — `cbdb_replay.lookatassociations` has no `person_id` input, so it can't answer the per-person question that Avalonia answers. Phase 4 pair removed in Phase 6b; see `associations_basic_person` entry in `reports/known_issues.md`. Avalonia side still covered by `tests/test_phase5c_person_mirror_vs_host.py::test_associations_mirror_vs_host`. |
+| 7 | **Kinship** | `kinship_recursive_traversal` · Form_LookAtKinship · CmdRun — *recursive expansion from seed* | `IPersonBrowserService.GetKinshipsAsync(personId, expandNetwork=false)` direct branch + `expandNetwork=true` graph traversal | ✅ paired (1-hop direct branch) — `tests/test_phase4_kinships_pair.py` rewired in Phase 6a to call `cbdb_replay.lookatkinship.run` directly (§0.b compliant). Cross-section limited to raw columns both sides emit; INNER vs LEFT JOIN orphan-kin contract gap tracked as `kinships_basic_person` in `reports/known_issues.md`. The expandNetwork=true branch runs via ParityHost (Phase 5d signoff) but has no `cbdb_replay` analogue. |
 | 8 | **Network expansion** | `network_personal_expansion` · Form_LookAtNetworks · CmdRun | _none_ | ⚠️ access-only |
 | 9 | **Association pairs** (path queries) | `assocpairs_path_queries` · Form_LookAtAssociationPairs · CmdQuery | _none_ | ⚠️ access-only |
 | 10 | **Place / GIS** | `place_basic_search` · Form_LookAtPlace · CmdQuery | _none_ | ⚠️ access-only |
@@ -30,23 +30,34 @@ These are the high-value paired queries that should land first in the differenti
 
 ## Tier 2: per-person detail accessors (Avalonia PersonBrowser)
 
-PersonBrowser's 14 detail methods (`Get<X>Async(personId)`) each return a per-person view of one CBDB relationship type. The Access test framework doesn't drive Form_LookAtPeople (the natural pair), so these are mostly _Avalonia-only_ from the test-harness perspective — but each one IS testable against the underlying mdb via direct SQL.
+PersonBrowser's 14 detail methods (`Get<X>Async(personId)`) each
+return a per-person view of one CBDB relationship type.
 
-| Avalonia method | Underlying table(s) | Access equivalent | Phase 3 approach |
+WORK_PLAN §0.b (added 2026-05-30) forbids hand-extracting SQL into
+a Python "Access equivalent" — Access-side tests must call upstream
+`cbdb_replay.lookat*` modules directly. Most Tier 2 surfaces have
+no `cbdb_replay.lookat*` analogue (the Access UI accessed them by
+hand, never through a replay script), so they have no Access-side
+oracle. Phase 6b removed the previous hand-written `_ACCESS_SQL`
+bridges and their pair tests; Avalonia-side correctness for those
+surfaces is still gated by
+`tests/test_phase5c_person_mirror_vs_host.py`.
+
+| Avalonia method | Underlying table(s) | cbdb_replay module | Cross-engine coverage |
 |---|---|---|---|
-| `GetAddressesAsync` | BIOG_ADDR_DATA + ADDRESSES + ADDR_CODES | pyodbc SQL | ✅ direct SQL compare |
-| `GetAltNamesAsync` | ALTNAME_DATA | pyodbc SQL | ✅ direct SQL compare |
-| `GetWritingsAsync` | TEXT_DATA + TEXT_CODES (?) | pyodbc SQL | ✅ direct SQL compare |
-| `GetPostingsAsync` | POSTED_TO_OFFICE_DATA + POSTING_DATA | pyodbc SQL | ✅ direct SQL compare |
-| `GetEntriesAsync` | ENTRY_DATA + ENTRY_CODES | pyodbc SQL | ✅ direct SQL compare |
-| `GetStatusesAsync` | STATUS_DATA + STATUS_CODES | pyodbc SQL | ✅ direct SQL compare |
-| `GetPossessionsAsync` | POSSESSION_ACT_DATA | pyodbc SQL | ✅ direct SQL compare |
-| `GetEventsAsync` | EVENTS_DATA + EVENT_CODES | pyodbc SQL | ✅ direct SQL compare |
-| `GetKinshipsAsync` | KIN_DATA + KINSHIP_CODES | pyodbc SQL | ✅ direct SQL compare |
-| `GetAssociationsAsync` | ASSOC_DATA + ASSOC_CODES | pyodbc SQL | ✅ direct SQL compare |
-| `GetSourcesAsync` | BIOG_SOURCE_DATA + TEXT_CODES | pyodbc SQL | ✅ direct SQL compare |
-| `GetInstitutionsAsync` | BIOG_INST_DATA + SOCIAL_INSTITUTION_CODES | pyodbc SQL | ✅ direct SQL compare |
-| `GetDetailAsync` | BIOG_MAIN + 5-6 join tables | pyodbc SQL | ✅ direct SQL compare |
+| `GetAddressesAsync` | BIOG_ADDR_DATA + ADDR_CODES | _none_ | Avalonia-only via Phase 5c mirror-vs-host (`test_addresses_mirror_vs_host`). Access pair retired in 6b. |
+| `GetAltNamesAsync` | ALTNAME_DATA | _none_ | Same — Phase 5c only. |
+| `GetWritingsAsync` | BIOG_TEXT_DATA + TEXT_CODES | _none_ | Same — Phase 5c only. |
+| `GetPostingsAsync` | POSTED_TO_OFFICE_DATA + POSTED_TO_ADDR_DATA + … | _none_ | Avalonia returns nested `PersonPostingItem`; Phase 5c skips this surface (`NotImplementedError` mirror), no Access oracle. |
+| `GetEntriesAsync` (per-person) | ENTRY_DATA + ENTRY_CODES | _none_ for the per-person shape (Tier 1 row 2 covers the corpus-wide query via `lookatentry`) | Avalonia-only via Phase 5c. |
+| `GetStatusesAsync` (per-person) | STATUS_DATA + STATUS_CODES | _none_ for the per-person shape (Tier 1 row 4 covers the corpus-wide query via `lookatstatus`) | Avalonia-only via Phase 5c. |
+| `GetPossessionsAsync` | POSSESSION_DATA | _none_ | Avalonia-only via Phase 5c. |
+| `GetEventsAsync` | EVENTS_DATA + EVENT_CODES | _none_ | Avalonia-only via Phase 5c. |
+| `GetKinshipsAsync` (1-hop direct) | KIN_DATA + KINSHIP_CODES | `cbdb_replay.lookatkinship` | ✅ paired — `tests/test_phase4_kinships_pair.py` via §0.b-compliant cbdb_replay route (Phase 6a). |
+| `GetAssociationsAsync` | ASSOC_DATA + ASSOC_CODES | `cbdb_replay.lookatassociations` (different question shape — no per-person input) | ⚠️ no per-person Access oracle; Phase 5c only. See `associations_basic_person` in known_issues. |
+| `GetSourcesAsync` | BIOG_SOURCE_DATA + TEXT_CODES | _none_ | Avalonia-only via Phase 5c. |
+| `GetInstitutionsAsync` | BIOG_INST_DATA + SOCIAL_INSTITUTION_NAME_CODES + … | _none_ | Avalonia-only via Phase 5c. |
+| `GetDetailAsync` | BIOG_MAIN + 5–6 join tables | _none_ | Avalonia-only via Phase 5c. |
 | `GetRelatedItemsAsync` | dispatch — covered by per-relation methods above | dispatch | n/a |
 
 ## Tier 3: Access-only export workflows
@@ -73,7 +84,16 @@ Access has `CmdImport*` (read tab/comma-separated input file → form selection 
 
 - **Avalonia query services**: 7 user-facing (Entry/Office/Status/PersonBrowser/GroupPeople/PlaceLookup/DynastyLookup) + 2 diagnostic (DatabaseHealth/DatabaseIndex) = 9 services, **29 methods total** (2+2+3+16+1+1+1+1+2)
 - **Access driver-covered queries**: 43 entries (across 11 forms × ~3-5 actions/form; 5 status values used)
-- **Directly-comparable pairs (Phase 4 landed)**: Tier 1 = 4 ✅ (entry, office, status, BIOG basic) + Tier 2 = 13 ✅ (per-person PersonBrowser accessors — altnames, entries, addresses, writings, postings*, statuses, possessions, events, kinships, associations, sources, institutions, detail) = **17 query pairs** with end-to-end PASS reports under `reports/`. *postings auto-skips on a documented upstream Avalonia schema bug (`pto.c_appt_type_code`); same bug also affects office_basic.
+- **Directly-comparable pairs (post-Phase 6b)**: Tier 1 = 3 ✅
+  (entry, office, status — all via `cbdb_replay.lookat*`) + Tier 2 =
+  1 ✅ (kinships, via `cbdb_replay.lookatkinship`; rewired in
+  Phase 6a) = **4 query pairs** with end-to-end PASS reports under
+  `reports/`. The other Phase 4 Tier-2 surfaces (12) and Tier-1
+  biog_basic / associations were removed in Phase 6b because they
+  had no §0.b-compliant Access oracle (no `cbdb_replay.lookat*`
+  module, or the existing module answers a structurally different
+  question). Avalonia-side coverage for all retired surfaces is
+  preserved by `tests/test_phase5c_person_mirror_vs_host.py`.
 - **Closed-by-tier-2** (originally listed as shape-mismatched but resolved by asking the per-person question on both sides): associations and kinship (non-recursive). The kinship `expandNetwork=true` graph traversal is queued as a follow-up — requires porting the `KinshipTraversalState` machine to Python.
 - **No-pair (genuinely misaligned)**: GroupData demographics. Documented in `reports/known_issues.md` as Access-only.
 - **Access-only — no Avalonia analogue**: Texts, Networks, AssociationPairs, Place. Documented in `reports/known_issues.md` as Avalonia gaps; nothing to compare until those services land in `cbdb-desktop-app`.

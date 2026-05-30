@@ -63,77 +63,6 @@ _POSTING_RECORD_FIELDS: tuple[str, ...] = (
 _POSTING_ID_FIELDS: tuple[str, ...] = ()
 
 
-def _to_bool_or_none(value: Any) -> bool | None:
-    """Mirrors upstream `reader.GetInt32(N) == 1`. NOT a generic
-    truthiness check — see `cbdb_parity.avalonia_addresses` for the
-    rationale (CBDB may store sentinel values other than {0,1,None}).
-    """
-    if value is None:
-        return None
-    return value == 1
-
-
-def _row_to_dict(r: tuple[Any, ...]) -> dict[str, Any]:
-    """Map a raw POSTED_TO_OFFICE_DATA-join row (50 columns, in the
-    historical SELECT order documented in Phase 4) to the postings
-    record dict. Still used by the Phase 4 Access bridge
-    (`cbdb_parity.access_postings`) to produce its raw-row output.
-    The Avalonia side no longer calls this — see `postings_query`.
-    """
-    return {
-        "posting_id":             r[0],
-        "office_id":              r[1],
-        "sequence":               r[2],
-        "office_name_chn":        r[3],
-        "office_name":            r[4],
-        "appt_desc_chn":          r[5],
-        "appt_desc":              r[6],
-        "assume_office_desc_chn": r[7],
-        "assume_office_desc":     r[8],
-        "category_desc_chn":      r[9],
-        "category_desc":          r[10],
-        "first_year":             r[11],
-        "fy_nianhao_chn":         r[12],
-        "fy_nianhao_pin":         r[13],
-        "fy_nh_year":             r[14],
-        "fy_range_chn":           r[15],
-        "fy_range":               r[16],
-        "fy_month":               r[17],
-        "fy_intercalary":         _to_bool_or_none(r[18]),
-        "fy_day":                 r[19],
-        "fy_ganzhi_chn":          r[20],
-        "fy_ganzhi_py":           r[21],
-        "last_year":              r[22],
-        "ly_nianhao_chn":         r[23],
-        "ly_nianhao_pin":         r[24],
-        "ly_nh_year":             r[25],
-        "ly_range_chn":           r[26],
-        "ly_range":               r[27],
-        "ly_month":               r[28],
-        "ly_intercalary":         _to_bool_or_none(r[29]),
-        "ly_day":                 r[30],
-        "ly_ganzhi_chn":          r[31],
-        "ly_ganzhi_py":           r[32],
-        "dynasty_chn":            r[33],
-        "dynasty":                r[34],
-        "source_title_chn":       r[35],
-        "source_title":           r[36],
-        "pages":                  r[37],
-        "notes":                  r[38],
-        "created_by":             r[39],
-        "created_date":           r[40],
-        "modified_by":            r[41],
-        "modified_date":          r[42],
-        "addr_id":                r[43],
-        "addr_name_chn":          r[44],
-        "addr_name":              r[45],
-        "addr_created_by":        r[46],
-        "addr_created_date":      r[47],
-        "addr_modified_by":       r[48],
-        "addr_modified_date":     r[49],
-    }
-
-
 def postings_query(
     sqlite_path: Path,
     person_id: int,
@@ -158,7 +87,6 @@ def postings_id_field_names() -> tuple[str, ...]:
 
 
 __all__ = [
-    "_row_to_dict",
     "postings_field_names",
     "postings_id_field_names",
     "postings_query",

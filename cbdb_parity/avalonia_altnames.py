@@ -70,33 +70,7 @@ def altnames_id_field_names() -> tuple[str, ...]:
     return _ALTNAME_ID_FIELDS
 
 
-def _join_display(
-    primary: str | None,
-    secondary: str | None,
-    secondary_pattern: str = " / {0}",
-) -> str | None:
-    """Exact port of
-    `Cbdb.App.Data.SqlitePersonBrowserService.JoinDisplay`.
-    Used by the Phase 4 Access-side bridges to match what the C#
-    host emits for `source`/`event_name`/etc. fields.
-
-    Logic mirrors upstream verbatim:
-      - blank primary → return secondary as-is
-      - blank secondary OR case-insensitive equal → return primary
-      - otherwise → primary + secondary_pattern.format(secondary)
-    """
-    def _blank(s: str | None) -> bool:
-        return s is None or not s.strip()
-
-    if _blank(primary):
-        return secondary
-    if _blank(secondary) or primary.casefold() == (secondary or "").casefold():
-        return primary
-    return primary + secondary_pattern.format(secondary)
-
-
 __all__ = [
-    "_join_display",
     "altnames_field_names",
     "altnames_id_field_names",
     "altnames_query",
