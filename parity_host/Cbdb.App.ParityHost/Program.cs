@@ -34,81 +34,44 @@ internal static class Program
         Console.OutputEncoding = utf8;
         Console.InputEncoding = utf8;
 
+        // Phase 7h — `--daemon` flag enables the NDJSON loop that
+        // amortises ~1s cold-start over the suite. One-shot mode
+        // stays the default for backwards compatibility and easy
+        // manual debugging.
+        if (args.Length >= 1 && args[0] == "--daemon")
+        {
+            return await RunDaemonAsync();
+        }
+
+        return await RunOneShotAsync(args);
+    }
+
+    /// <summary>
+    /// One-shot dispatch: usage is the historical
+    /// `cbdb-parity-host &lt;service&gt; &lt;sqlite-path&gt;` with the
+    /// request body on STDIN. STDERR on a non-zero exit carries
+    /// the `{error, stack}` payload Python wraps as
+    /// <c>ParityHostError</c>.
+    /// </summary>
+    private static async Task<int> RunOneShotAsync(string[] args)
+    {
         try
         {
             if (args.Length < 2)
             {
                 throw new ArgumentException(
-                    "usage: cbdb-parity-host <service> <sqlite-path>"
+                    "usage: cbdb-parity-host <service> <sqlite-path>  (or --daemon)"
                 );
             }
 
             var service = args[0];
             var sqlitePath = args[1];
-
-            // Read the request body off STDIN as a single JSON
-            // document. NDJSON streaming mode comes in 5a-4.
             var requestBody = await Console.In.ReadToEndAsync();
 
-            // Helper: parse person_id off STDIN once per accessor.
-            async Task<string> PersonAccessor<TResult>(
-                Func<SqlitePersonBrowserService, int, Task<TResult>> invoker)
-            {
-                var pr = JsonSerializer.Deserialize<PersonRequest>(
-                    requestBody, _jsonOptions
-                ) ?? throw new ArgumentException(
-                    "request body could not be deserialised into {person_id}"
-                );
-                var svc = new SqlitePersonBrowserService();
-                var res = await invoker(svc, pr.PersonId);
-                return JsonSerializer.Serialize(res, _jsonOptions);
-            }
-
-            var responseJson = service switch
-            {
-                "entry"          => await DispatchEntryAsync(sqlitePath, requestBody),
-                "office"         => await DispatchOfficeAsync(sqlitePath, requestBody),
-                "status"         => await DispatchStatusAsync(sqlitePath, requestBody),
-                "kinships"       => await DispatchKinshipsAsync(sqlitePath, requestBody),
-                // PersonBrowser per-person accessors — all take just
-                // (sqlitePath, personId) and return IReadOnlyList<…>.
-                // Local generic helper above handles the JSON
-                // deserialisation; each branch supplies the
-                // service-method invocation.
-                "addresses"      => await PersonAccessor((svc, pid) => svc.GetAddressesAsync(sqlitePath, pid)),
-                "altnames"       => await PersonAccessor((svc, pid) => svc.GetAltNamesAsync(sqlitePath, pid)),
-                "writings"       => await PersonAccessor((svc, pid) => svc.GetWritingsAsync(sqlitePath, pid)),
-                "postings"       => await PersonAccessor((svc, pid) => svc.GetPostingsAsync(sqlitePath, pid)),
-                "entries"        => await PersonAccessor((svc, pid) => svc.GetEntriesAsync(sqlitePath, pid)),
-                "statuses"       => await PersonAccessor((svc, pid) => svc.GetStatusesAsync(sqlitePath, pid)),
-                "possessions"    => await PersonAccessor((svc, pid) => svc.GetPossessionsAsync(sqlitePath, pid)),
-                "events"         => await PersonAccessor((svc, pid) => svc.GetEventsAsync(sqlitePath, pid)),
-                "associations"   => await PersonAccessor((svc, pid) => svc.GetAssociationsAsync(sqlitePath, pid)),
-                "sources"        => await PersonAccessor((svc, pid) => svc.GetSourcesAsync(sqlitePath, pid)),
-                "institutions"   => await PersonAccessor((svc, pid) => svc.GetInstitutionsAsync(sqlitePath, pid)),
-                // GetDetailAsync returns PersonDetail? (nullable scalar),
-                // not a list — but the same PersonRequest shape works.
-                "detail"         => await PersonAccessor((svc, pid) => svc.GetDetailAsync(sqlitePath, pid)),
-                // BIOG basic search — (keyword, limit, offset).
-                "biog_basic"     => await DispatchBiogBasicAsync(sqlitePath, requestBody),
-                // Phase 5e lookup surfaces — added once the SDK was
-                // available so the harness can drive the same options
-                // builders the Avalonia UI uses.
-                "dynasty_lookup" => await DispatchDynastyLookupAsync(sqlitePath),
-                "place_lookup"   => await DispatchPlaceLookupAsync(sqlitePath),
-                "group_people"   => await DispatchGroupPeopleAsync(sqlitePath, requestBody),
-                _                => throw new ArgumentException(
-                                      $"unknown service '{service}' "
-                                      + "(supported: entry, office, status, kinships, "
-                                      + "addresses, altnames, writings, postings, entries, "
-                                      + "statuses, possessions, events, associations, "
-                                      + "sources, institutions, detail, biog_basic, "
-                                      + "dynasty_lookup, place_lookup, group_people)"
-                                  ),
-            };
+            var responseJson = await DispatchAsync(service, sqlitePath, requestBody);
 
             // Write a single JSON document to STDOUT, no trailing
-            // newline (NDJSON-friendly later).
+            // newline (NDJSON daemon mode adds them explicitly).
             Console.Out.Write(responseJson);
             return 0;
         }
@@ -123,6 +86,188 @@ internal static class Program
             Console.Error.Write(JsonSerializer.Serialize(error, _jsonOptions));
             return 1;
         }
+    }
+
+    /// <summary>
+    /// NDJSON daemon mode. The wire contract:
+    ///
+    /// <para>
+    /// <b>Input</b>: one JSON document per line on STDIN, shaped as
+    /// <code>
+    /// {"service": "...", "sqlite_path": "...", "request": &lt;arbitrary JSON&gt;}
+    /// </code>
+    /// EOF on STDIN closes the daemon cleanly with exit 0.
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Output</b>: one JSON document per line on STDOUT, either
+    /// <code>{"ok": &lt;response JSON document&gt;}</code> on success or
+    /// <code>{"error": "...", "stack": "..."}</code> when one
+    /// request fails (the daemon keeps serving subsequent frames
+    /// rather than crashing on the first failure — that's the
+    /// whole point of the mode).
+    /// </para>
+    ///
+    /// <para>
+    /// <b>Error handling</b>: a parse error on the request frame
+    /// itself (malformed JSON, missing field) is also reported as
+    /// a per-frame error and the loop continues. The daemon only
+    /// exits abnormally on EOF or an unhandled framework
+    /// exception (in which case the Python side resurrects it on
+    /// the next call — see <c>ParityHostDaemon</c>).
+    /// </para>
+    /// </summary>
+    private static async Task<int> RunDaemonAsync()
+    {
+        string? line;
+        while ((line = await Console.In.ReadLineAsync()) != null)
+        {
+            string responseLine;
+            try
+            {
+                var frame = JsonSerializer.Deserialize<DaemonRequestFrame>(
+                    line, _jsonOptions
+                ) ?? throw new ArgumentException(
+                    "daemon frame deserialised to null"
+                );
+                if (string.IsNullOrEmpty(frame.Service))
+                {
+                    throw new ArgumentException("daemon frame missing 'service'");
+                }
+                if (string.IsNullOrEmpty(frame.SqlitePath))
+                {
+                    throw new ArgumentException("daemon frame missing 'sqlite_path'");
+                }
+
+                // The dispatch helpers want a JSON STRING for the
+                // request body, not a JsonElement; re-serialise the
+                // sub-document. Empty / missing `request` is fine
+                // for services that don't read STDIN (dynasty_lookup,
+                // place_lookup).
+                var requestBody = frame.Request.ValueKind == JsonValueKind.Undefined
+                    || frame.Request.ValueKind == JsonValueKind.Null
+                    ? "{}"
+                    : frame.Request.GetRawText();
+
+                var responseJson = await DispatchAsync(
+                    frame.Service, frame.SqlitePath, requestBody
+                );
+                // Wrap in {"ok": ...} so the Python side can
+                // distinguish success from error frames cheaply
+                // without parsing the response JSON twice.
+                using var ms = new System.IO.MemoryStream();
+                await using (var w = new Utf8JsonWriter(ms))
+                {
+                    w.WriteStartObject();
+                    w.WritePropertyName("ok");
+                    using (var doc = JsonDocument.Parse(responseJson))
+                    {
+                        doc.RootElement.WriteTo(w);
+                    }
+                    w.WriteEndObject();
+                }
+                responseLine = Encoding.UTF8.GetString(ms.ToArray());
+            }
+            catch (Exception ex)
+            {
+                var error = new
+                {
+                    error = ex.Message,
+                    stack = ex.ToString(),
+                };
+                responseLine = JsonSerializer.Serialize(error, _jsonOptions);
+            }
+
+            Console.Out.WriteLine(responseLine);
+            // Critical on Windows + buffered stdout: without an
+            // explicit flush after each frame, the Python side
+            // would block on ReadLine() waiting for the OS to
+            // flush the pipe buffer (which typically only happens
+            // on process exit). Daemon mode is unusable without
+            // this.
+            await Console.Out.FlushAsync();
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// Per-frame wire shape for daemon mode. `Request` is a raw
+    /// JSON sub-document so we can hand it to the same dispatch
+    /// helpers that the one-shot path uses — they want a
+    /// JSON-string body, not a parsed object.
+    /// </summary>
+    private sealed record DaemonRequestFrame(
+        string Service,
+        string SqlitePath,
+        JsonElement Request
+    );
+
+    /// <summary>
+    /// The single dispatch table. Extracted from <see cref="Main"/>
+    /// so both <see cref="RunOneShotAsync"/> and
+    /// <see cref="RunDaemonAsync"/> share it. Returns the response
+    /// as a JSON string ready for the wire (no trailing newline;
+    /// the caller adds NDJSON framing if needed).
+    /// </summary>
+    private static async Task<string> DispatchAsync(
+        string service, string sqlitePath, string requestBody)
+    {
+        // Helper: parse person_id off STDIN once per accessor.
+        async Task<string> PersonAccessor<TResult>(
+            Func<SqlitePersonBrowserService, int, Task<TResult>> invoker)
+        {
+            var pr = JsonSerializer.Deserialize<PersonRequest>(
+                requestBody, _jsonOptions
+            ) ?? throw new ArgumentException(
+                "request body could not be deserialised into {person_id}"
+            );
+            var svc = new SqlitePersonBrowserService();
+            var res = await invoker(svc, pr.PersonId);
+            return JsonSerializer.Serialize(res, _jsonOptions);
+        }
+
+        return service switch
+        {
+            "entry"          => await DispatchEntryAsync(sqlitePath, requestBody),
+            "office"         => await DispatchOfficeAsync(sqlitePath, requestBody),
+            "status"         => await DispatchStatusAsync(sqlitePath, requestBody),
+            "kinships"       => await DispatchKinshipsAsync(sqlitePath, requestBody),
+            // PersonBrowser per-person accessors — all take just
+            // (sqlitePath, personId) and return IReadOnlyList<…>.
+            // Local generic helper above handles the JSON
+            // deserialisation; each branch supplies the
+            // service-method invocation.
+            "addresses"      => await PersonAccessor((svc, pid) => svc.GetAddressesAsync(sqlitePath, pid)),
+            "altnames"       => await PersonAccessor((svc, pid) => svc.GetAltNamesAsync(sqlitePath, pid)),
+            "writings"       => await PersonAccessor((svc, pid) => svc.GetWritingsAsync(sqlitePath, pid)),
+            "postings"       => await PersonAccessor((svc, pid) => svc.GetPostingsAsync(sqlitePath, pid)),
+            "entries"        => await PersonAccessor((svc, pid) => svc.GetEntriesAsync(sqlitePath, pid)),
+            "statuses"       => await PersonAccessor((svc, pid) => svc.GetStatusesAsync(sqlitePath, pid)),
+            "possessions"    => await PersonAccessor((svc, pid) => svc.GetPossessionsAsync(sqlitePath, pid)),
+            "events"         => await PersonAccessor((svc, pid) => svc.GetEventsAsync(sqlitePath, pid)),
+            "associations"   => await PersonAccessor((svc, pid) => svc.GetAssociationsAsync(sqlitePath, pid)),
+            "sources"        => await PersonAccessor((svc, pid) => svc.GetSourcesAsync(sqlitePath, pid)),
+            "institutions"   => await PersonAccessor((svc, pid) => svc.GetInstitutionsAsync(sqlitePath, pid)),
+            // GetDetailAsync returns PersonDetail? (nullable scalar),
+            // not a list — but the same PersonRequest shape works.
+            "detail"         => await PersonAccessor((svc, pid) => svc.GetDetailAsync(sqlitePath, pid)),
+            // BIOG basic search — (keyword, limit, offset).
+            "biog_basic"     => await DispatchBiogBasicAsync(sqlitePath, requestBody),
+            // Phase 5e lookup surfaces — added once the SDK was
+            // available so the harness can drive the same options
+            // builders the Avalonia UI uses.
+            "dynasty_lookup" => await DispatchDynastyLookupAsync(sqlitePath),
+            "place_lookup"   => await DispatchPlaceLookupAsync(sqlitePath),
+            "group_people"   => await DispatchGroupPeopleAsync(sqlitePath, requestBody),
+            _                => throw new ArgumentException(
+                                  $"unknown service '{service}' "
+                                  + "(supported: entry, office, status, kinships, "
+                                  + "addresses, altnames, writings, postings, entries, "
+                                  + "statuses, possessions, events, associations, "
+                                  + "sources, institutions, detail, biog_basic, "
+                                  + "dynasty_lookup, place_lookup, group_people)"
+                              ),
+        };
     }
 
     /// <summary>
