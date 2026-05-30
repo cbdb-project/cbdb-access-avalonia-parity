@@ -533,6 +533,147 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     纯文档改动，方便的话可以打包。7d → 7e → 7f 都改测试且
     全程保持绿。7g 与其他独立；7h 最后且最大。
 
+- **阶段 8（2026-05-31 起规划）** —— Phase 7 收尾：兑现
+  7h 推迟的运行时收益、扫除过时的注释与文案、把所有
+  文档索引拉到一致的 Phase 7 之后状态。Phase 8 收完之后，
+  repo 才算真正进入稳态——剩余只是等上游对 `known_issues.md`
+  里每条 suppression 的对应动作。
+
+  Phase 7 收尾审计（2026-05-31）发现的项目。所有项目都**不
+  需要**改动 `cbdb-desktop-app` 或 `cbdb-user-mdb-tests`，
+  也**不需要**给任何 repo 提 issue。按 §0.a + 2026-05-30
+  用户指示，这些都明确不在范围内。
+
+  Phase 8 拆四个子阶段，每个以 codex sign-off + `git push`
+  收尾，节奏同 Phase 5/6/7。
+
+  - **8a — 把 `ParityHostDaemon` 接入重流量测试**。
+    Phase 7h 落地了 daemon 模式 + 4 个 smoke 测试，但**没
+    有**让任何已有测试切到 daemon。现有的
+    `invoke_parity_host` 和 `invoke_person_accessor_via_host`
+    调用点仍然每次起一个 subprocess。7h WORK_PLAN
+    承诺的 "host-using 子集 ~4m → ~30s" 还没兑现。
+
+    具体动作：
+    - 在 `tests/conftest.py` 加一个 session 级 pytest
+      fixture，启动一次 `ParityHostDaemon`，session
+      teardown 时关掉。
+    - 给 `invoke_person_accessor_via_host` /
+      `invoke_parity_host` 加一个可选的
+      `daemon=<ParityHostDaemon>` kwarg，传入时改调
+      `daemon.invoke(...)`。
+    - 把 `tests/test_phase5c_person_mirror_vs_host.py` 和
+      `tests/test_phase4_replay_scan.py`（两个最重的 host
+      消费者）切到 fixture。
+    - Phase 7d 的 `_run_person_pair` helper 是 5c 侧的
+      集中注入点；replay_scan 侧的 kinship 分支直接调
+      bridge，需要把 daemon 透传进去。
+
+    验收：Phase 7 close 时大约 4 分钟的完整
+    `pytest tests/` 在同一台机器上跑到 ≤90 秒。Codex review。
+
+  - **8b — 过时文案 + 代码注释扫除**。Phase 7 收尾审计
+    发现六处带有跨 phase 边界过时引用的位置：
+
+    | 位置 | 当前文字 | 问题 |
+    |---|---|---|
+    | `cbdb_parity/parity_host.py` docstring（第 5-6 / 109 行） | "the NDJSON daemon mode that amortises that comes in a later commit (Phase 5a-5 per WORK_PLAN.md)" | Daemon 在 7h 落地，不是 5a-5。 |
+    | `parity_host/Cbdb.App.ParityHost/Program.cs` 第 18 行 | "(NDJSON daemon mode comes in a later commit)" | 同上。 |
+    | `cbdb_parity/access_office_query.py` 第 20 / 95 行 | "Phase 4 will widen the bridge as the cross-section grows" 等 | Phase 4 已闭环；cross-section 现在受 §0.b 约束，不会再扩。 |
+    | `cbdb_parity/avalonia_biog_basic.py` 第 6 行 | "when a follow-up wants to cover that, just pass `keyword` through" | keyword 分支已经被 Phase 6d/7 的 `test_biog_basic_person_id_keyword_mirror_vs_host` 和 `test_biog_basic_fuzzy_keyword_mirror_vs_host` 覆盖。 |
+    | `reports/known_issues.md` "Suppression sunset" 段 | "Per WORK_PLAN §7, every entry in this file should also have a follow-up tracking issue in `cbdb-project`'s issue tracker." | 与 2026-05-30 用户指示（F1+F2 排除）冲突。`known_issues.md` 自身就是 canonical 行动清单。 |
+    | `reports/known_issues.zh-Hant.md` "豁免到期管理" 段 | 同上的繁中版本 | 镜像同步。 |
+
+    每一处要么 (a) 改指向真实落地的 commit / phase，要么
+    (b) 直接把过时的"未来时"删掉。sunset 段重写时显式说
+    明 `known_issues.md` 自身就是 canonical 清单，每条
+    "Suppress until" 行就是 actionable trigger。纯文档。
+    Codex review。
+
+  - **8c — 仅本地的 stale report 目录清理**。Phase 6b
+    把 13 个 `reports/<surface>_basic_person/`（和
+    `_basic`）目录从 git 里删了，但 Phase 6b 之前的
+    本地 pytest 跑过留下的文件系统残留：
+
+    ```
+    reports/addresses_basic_person     reports/altnames_basic
+    reports/associations_basic_person  reports/biog_basic_search
+    reports/detail_basic_person        reports/entries_basic_person
+    reports/events_basic_person        reports/institutions_basic_person
+    reports/possessions_basic_person   reports/postings_basic_person
+    reports/sources_basic_person       reports/statuses_basic_person
+    reports/writings_basic_person
+    ```
+
+    `git ls-tree` 确认这些**没**被 git 跟踪；`git status`
+    也不显示它们（不带新文件的未跟踪目录不出现）。它们
+    只是 Phase 6b 之前的本地沉积物。
+
+    动作：在 8c commit 的预备步里 `rm -rf` 掉本地这些目录
+    （rm 本身没有 commit；commit 只捕获相关 doc-touch，或
+    直接并入 8b）。**不需要**加 `.gitignore`——对应的
+    pair test 已经删掉，未来跑测试不会再生成这些目录。
+    其他 dev 本地 clone 里如果也有，自己重复 rm 即可。
+
+    可选保险：在 `reports/.gitkeep` 的注释里加一行（如果有
+    的话）提醒：退役的 per-surface 目录应该本地手动 rm。
+    可选；只在有版本控制文件改动时走 codex review。
+
+  - **8d — Phase 7 回填到 `WORK_PLAN.md` + zh-CN 同步**。
+    Phase 7 当时在 `WORK_PLAN.md` 和 `WORK_PLAN.zh-CN.md`
+    里**作为计划**写好就开始执行，7a-7h 全部落地之后两份
+    都没收到 Phase 5b/5c/5d/5e 和 Phase 6a-6d 那种
+    `(✅ 落地 YYYY-MM-DD)` 标记。Phase 7 子阶段还累积了
+    codex round 的发现以及真实 suite delta，plan 里没体现。
+
+    动作：
+    - 给 `WORK_PLAN.md` 里每个 Phase 7 子阶段标题加
+      `(✅ landed 2026-05-31)`（7a → 7h）。
+    - 把每个子阶段的真实 codex round delta 追加进去
+      （如 7c 加了 4 个 CLI 测试不是 0、7d 的 empty-row
+      guard 抓到的 false-pass 类、7e 的 NULL c_kin_id
+      detection 扩展、7f 的 payload typing 收紧、7g 的
+      per-file RUF002/RUF003 scope、7h 的 timeout 强制 +
+      stderr drainer + 安全 exit）。
+    - 扩展 §9 的 "Post-Phase-6 status (2026-05-30)" 段，
+      加一个 "Post-Phase-7 status (2026-05-31)" 子节，把
+      新的 suite-count 契约锚定到 Phase 7 close
+      （388 passed / 7 skipped / 1 xfailed，commit
+      `46e8186`）。
+    - 刷新 `README.md` 的 "Repository status" 段：
+      "Phases 1–6 landed (2026-05-27 → 2026-05-30).
+      Current suite: 354 passed, 6 skipped, 1 xfailed."
+      改为 "Phases 1–7 landed (2026-05-27 → 2026-05-31).
+      Current suite: 388 passed, 7 skipped, 1 xfailed."
+      架构图说明里加一句 `ParityHostDaemon` 已可用。
+    - 把上面所有内容原样镜像到 `WORK_PLAN.zh-CN.md`——
+      §0 的拆分、每个 Phase 7 子阶段 ✅ 标记、Phase 7
+      close 锚点、同样的 codex round 注解。在中文做出的
+      决策以 zh-CN 为准，让 zh-CN 镜像跟英文头不要差超过
+      1–2 个 commit 是 §0.a 契约的一部分。
+
+    在最终合并完的 edit 上跑 codex review（en + zh-CN
+    一批合并审，这种纯文档子阶段可以这样做）。
+
+  - **预期 suite delta**：Phase 8 加 **0** 个新通过的
+    case。8a 是运行时变化，8b/8c/8d 是文档 / 本地清理。
+    锚定 Phase 7 close 的 388/7/1 契约在 Phase 8 之后
+    仍然是 canonical 数字。
+
+  - **Phase 8 不做**（按 §0.a + 2026-05-30 用户指示）：
+    - 同 Phase 7 排除项——不改 upstream，不给任何
+      repo 提 issue。
+    - "用真实 PR 验证 CI" 不算单独任务：下一个有贡献者
+      的 push 或 PR 会自动让 GHA 跑，那就是真实世界
+      validation，代替任何合成前提检查。如果第一个 PR
+      上 CI 红了，假设性的 Phase 8e 那时再落补丁。
+
+  - **顺序**：8a → 8b → 8c → 8d。8a 是唯一改动代码的
+    子阶段（也是唯一会看到 suite-runtime 变化的）；
+    8b/8c/8d 都是文档 + 本地清理，方便的话可以打包成
+    一个 commit，参考 7a/7b/7c 先例。每步 codex sign-off
+    + `git push` 收尾。
+
 ## 9. 未决问题
 
 **规划阶段已解决：**

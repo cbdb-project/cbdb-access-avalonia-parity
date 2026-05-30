@@ -726,6 +726,173 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     is independent of everything else; 7h is the last and
     largest.
 
+- **Phase 8 (planned 2026-05-31 onwards)** — Phase 7 wrap-up:
+  realise the deferred 7h runtime payoff, sweep stale prose
+  and comments, and bring all documentation indices into a
+  consistent post-Phase-7 state. After Phase 8 the repo is in
+  a true steady-state pending upstream action on every
+  documented `known_issues.md` suppression.
+
+  Discovered during the post-Phase-7 audit (2026-05-31). None
+  of the items below require modifying `cbdb-desktop-app` or
+  `cbdb-user-mdb-tests`; none requires filing GitHub issues
+  against any repo. Per §0.a + the 2026-05-30 user directive
+  those are explicitly out of scope.
+
+  Phase 8 is split into four sub-phases, each ending with codex
+  sign-off + `git push`, mirroring the Phase 5/6/7 cadence.
+
+  - **8a — Wire `ParityHostDaemon` into the heavy-traffic
+    tests**. Phase 7h landed the daemon mode + 4 smoke tests
+    but did NOT switch any existing test over to it. Existing
+    `invoke_parity_host` and `invoke_person_accessor_via_host`
+    call sites still spawn one subprocess per call. The 7h
+    WORK_PLAN delta ("from ~4m to ~30s on the host-using
+    subset") has not been realised yet.
+
+    Concretely:
+    - Add a session-scoped pytest fixture in
+      `tests/conftest.py` that yields a single
+      `ParityHostDaemon` for the suite, started once at
+      collection time and torn down at session teardown.
+    - Add a thin overload (or kwarg) on
+      `invoke_person_accessor_via_host` /
+      `invoke_parity_host` that takes an optional
+      `daemon=<ParityHostDaemon>` and, when given, calls
+      `daemon.invoke(...)` instead of spawning a new
+      subprocess.
+    - Switch `tests/test_phase5c_person_mirror_vs_host.py`
+      and `tests/test_phase4_replay_scan.py` (the two
+      heaviest host consumers) to use the fixture.
+    - Phase 7d's `_run_person_pair` helper is the central
+      injection point on the 5c side; on the replay_scan
+      side the kinship branch already calls the bridge
+      directly and just needs the daemon threaded through.
+
+    Acceptance criterion: a full `pytest tests/` run that hit
+    ~4m at Phase 7 close drops to ≤90s on the same machine.
+    Codex review.
+
+  - **8b — Stale prose and code-comment sweep**. The
+    post-Phase-7 audit found six locations with stale
+    references that survived earlier phase boundaries:
+
+    | location | current text | issue |
+    |---|---|---|
+    | `cbdb_parity/parity_host.py` docstring (lines 5–6, 109) | "the NDJSON daemon mode that amortises that comes in a later commit (Phase 5a-5 per WORK_PLAN.md)" | Daemon landed in 7h, not 5a-5. |
+    | `parity_host/Cbdb.App.ParityHost/Program.cs` line 18 | "(NDJSON daemon mode comes in a later commit)" | Same. |
+    | `cbdb_parity/access_office_query.py` lines 20, 95 | "Phase 4 will widen the bridge as the cross-section grows" / "Phase 4 can either teach cbdb_replay these branches or…" | Phase 4 is closed; the cross-section is now what §0.b will allow without transcription. |
+    | `cbdb_parity/avalonia_biog_basic.py` line 6 | "when a follow-up wants to cover that, just pass `keyword` through" | The keyword branches are covered by Phase 6d/7's `test_biog_basic_person_id_keyword_mirror_vs_host` and `test_biog_basic_fuzzy_keyword_mirror_vs_host`. |
+    | `reports/known_issues.md` "Suppression sunset" section | "Per WORK_PLAN §7, every entry in this file should also have a follow-up tracking issue in `cbdb-project`'s issue tracker." | Contradicts the 2026-05-30 user directive that excluded F1/F2. The `known_issues.md` file IS the canonical action list now; the issue-tracker requirement should be removed. |
+    | `reports/known_issues.zh-Hant.md` "豁免到期管理" section | same content in Traditional Chinese | Mirror of the above. |
+
+    Update each to either (a) point at the actual landing
+    commit, or (b) drop the obsolete future-tense entirely.
+    The sunset rewrite should explicitly state that
+    `known_issues.md` is itself the canonical action list and
+    each entry's "Suppress until" line is the actionable
+    trigger. Pure documentation. Codex review.
+
+  - **8c — Local-only stale report directory cleanup**.
+    Phase 6b deleted 13 `reports/<surface>_basic_person/`
+    (and `_basic`) directories from git, but local pytest
+    runs from BEFORE Phase 6b left the directories on the
+    filesystem:
+
+    ```
+    reports/addresses_basic_person     reports/altnames_basic
+    reports/associations_basic_person  reports/biog_basic_search
+    reports/detail_basic_person        reports/entries_basic_person
+    reports/events_basic_person        reports/institutions_basic_person
+    reports/possessions_basic_person   reports/postings_basic_person
+    reports/sources_basic_person       reports/statuses_basic_person
+    reports/writings_basic_person
+    ```
+
+    `git ls-tree` confirms they are NOT tracked; `git status`
+    doesn't surface them either (untracked directories
+    without new files don't show up). They exist as
+    pre-Phase-6b sediment only.
+
+    Action: `rm -rf` them locally as part of the Phase 8c
+    commit's preamble (the rm itself produces no commit; the
+    commit captures only the rationale in a follow-up
+    doc-touch, or just lands as part of 8b). No `.gitignore`
+    addition is needed — the corresponding pair tests are
+    deleted, so nothing will re-create these directories on
+    future runs. If a developer's local clone has them they
+    can repeat the rm.
+
+    Optional belt-and-braces: add a one-line note to
+    `reports/.gitkeep`'s comment block (if any) reminding
+    that retired per-surface directories should be removed
+    locally. Discretionary; codex review only if any
+    versioned file changes.
+
+  - **8d — Phase 7 retrospective in `WORK_PLAN.md` + zh-CN
+    sync**. Phase 7 was written into both `WORK_PLAN.md` and
+    `WORK_PLAN.zh-CN.md` as a PLAN before execution. After
+    7a–7h all landed, neither file received the matching
+    `(✅ landed YYYY-MM-DD)` markers that Phase 5b/5c/5d/5e
+    and Phase 6a–6d carry. Phase 7 sub-phases also accrued
+    codex round findings + actual suite deltas that the
+    plans don't reflect.
+
+    Actions:
+    - Add `(✅ landed 2026-05-31)` markers to each Phase 7
+      sub-phase heading in `WORK_PLAN.md` (7a → 7h).
+    - Append the actual codex-round deltas to each
+      sub-phase's section (e.g. 7c added 4 CLI tests not 0;
+      7d's empty-row guard caught a real false-pass class;
+      7e's NULL c_kin_id detection extension; 7f's payload
+      typing tightening; 7g's per-file RUF002/RUF003 scoping;
+      7h's timeout enforcement + stderr drainer + safer exit).
+    - Extend the §9 "Post-Phase-6 status (2026-05-30)" block
+      with a "Post-Phase-7 status (2026-05-31)" subsection
+      anchoring the new suite-count contract: 388 passed,
+      7 skipped, 1 xfailed at Phase 7 close (commit `46e8186`).
+    - Refresh `README.md` "Repository status" — "Phases 1–6
+      landed (2026-05-27 → 2026-05-30). Current suite: 354
+      passed, 6 skipped, 1 xfailed." becomes "Phases 1–7
+      landed (2026-05-27 → 2026-05-31). Current suite: 388
+      passed, 7 skipped, 1 xfailed." Mention `ParityHostDaemon`
+      availability in the architecture diagram explanation.
+    - Mirror all of the above into `WORK_PLAN.zh-CN.md`
+      verbatim — § 0 split, every Phase 7 sub-phase ✅
+      marker, the Phase 7 close anchor, the same
+      codex-round annotations. The zh-CN mirror is
+      authoritative when project decisions are made in
+      Chinese; keeping it within 1–2 commits of the
+      English head is part of the §0.a contract.
+
+    Codex review on the final consolidated edit (en + zh-CN
+    in one batch is fine for this purely-documentary
+    sub-phase).
+
+  - **Expected suite delta**: Phase 8 adds **zero** new
+    passing tests. 8a is a runtime change, 8b/8c/8d are
+    docs/local-cleanup. The 388/7/1 contract anchored at
+    Phase 7 close stands as the canonical numbers after
+    Phase 8.
+
+  - **Out of scope for Phase 8** (per §0.a + 2026-05-30
+    user directive):
+    - Same exclusions as Phase 7 — no upstream changes, no
+      issue filing against other repos.
+    - The "verify CI on a real PR" item is not a separate
+      task: GHA will run on the next push or PR that lands
+      from any contributor, and that real-world validation
+      replaces a synthetic precondition test. If CI red-lines
+      on the first PR, Phase 8e (a hypothetical follow-up)
+      lands the fix at that point.
+
+  - **Sequencing**: 8a → 8b → 8c → 8d. 8a is the only
+    substantive code change (and the only one with a
+    suite-runtime observable); 8b/8c/8d are documentation +
+    local cleanup and can be batched together if convenient,
+    matching the 7a/7b/7c precedent. Each step ends with
+    codex sign-off + `git push`.
+
 ## 9. Open questions
 
 **Resolved during planning:**
