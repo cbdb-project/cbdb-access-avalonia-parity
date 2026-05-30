@@ -679,6 +679,60 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     一个 commit，参考 7a/7b/7c 先例。每步 codex sign-off
     + `git push` 收尾。
 
+- **阶段 9（2026-05-31 规划）** —— Phase 8 cosmetic follow-up。
+  两个纯文档子阶段——Phase 8 收尾扫描时发现了，但小到可以
+  单独走一遍。
+
+  Phase 9 不改 suite count、运行时、或任何对外 API。两件
+  事都是让 in-repo 文档准确反映 Phase 8 之后的真实情况。
+
+  - **9a — Phase 7 sub-phase prose 改成 past-tense + codex
+    annotations**（en + zh-CN）。8d 给每个 Phase 7 sub-phase
+    加了 `(✅ 落地 2026-05-31)` 标签，但段落本体还是规划态
+    的未来时（"加一个 CI workflow，在 push/PR 时..."、
+    "CLI 会重写..."）。把每段改成回顾式过去时，并在每段后
+    附上该 sub-phase 的实际 codex round delta：
+      - 7a：codex 干净。
+      - 7b：算术 + suppression-table 准确性 + Phase 6
+        close-out 锚点。
+      - 7c：rewrite happy-path 需要 sentinel + reports-dir-
+        is-a-file rejection。
+      - 7d：empty-row false-pass class → `_EXPECTED_EMPTY`
+        allow-list + label 透传。
+      - 7e：NULL c_kin_id detection + row-identity
+        assertion + skip-msg 精确化。
+      - 7f：payload typing 收紧 + kinship dispatch 分支
+        empty-row guard。
+      - 7g：per-file RUF002/RUF003 scope（原来是 global）。
+      - 7h：timeout 强制 + 后台 stderr drainer + 更安全
+        `__exit__`。
+
+    把同样的改动镜像到 `WORK_PLAN.zh-CN.md`，让两份头保持
+    一致。Codex review。
+
+  - **9b — `AGENTS.md` Phase 7/8 补段**。AGENTS.md 有 §0.b
+    但没提两件对实际操作有意义的落地事项：
+      - `.github/workflows/ci.yml` 的 CI workflow（Phase 7g）。
+        新贡献者应该预期每次 push/PR 都会跑 pytest/ruff；
+        如果改动涉及 import 或 non-DB 单元测试，要保证 CI
+        保持绿。
+      - 通过 `parity_host_daemon` pytest fixture 启用的
+        ParityHost daemon mode（Phase 7h + 8a）。opt-in
+        的测试自动得到 daemon 加速；自己管理
+        `with ParityHostDaemon(...) as host:` 的测试照常
+        工作——Phase 7h smoke 测试是参考例子。
+
+    加一小节（约 10 行）覆盖两件事。Codex review。
+
+  - **预期 suite delta**：0——纯文档。
+
+  - **不做**（按 §0.a + 2026-05-30 指示）：同 Phase 8
+    的排除项。
+
+  - **顺序**：9a → 9b。每步 codex sign-off + `git push`。
+    两件都是 doc-only 可以打包，但分开保留 Phase
+    5/6/7/8 的 codex-per-step 节奏。
+
 ## 9. 未决问题
 
 **规划阶段已解决：**

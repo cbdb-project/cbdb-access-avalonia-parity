@@ -899,6 +899,69 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     matching the 7a/7b/7c precedent. Each step ends with
     codex sign-off + `git push`.
 
+- **Phase 9 (planned 2026-05-31)** — Phase 8 cosmetic
+  follow-up. Two purely documentary sub-phases that the
+  Phase 8 close-out scan surfaced but were small enough to
+  defer to a separate pass.
+
+  Phase 9 does not change suite count, runtime, or any
+  exported API. Both items are about making the in-repo
+  documentation accurately reflect post-Phase-8 reality.
+
+  - **9a — Phase 7 sub-phase prose past-tense + codex
+    annotations** (en + zh-CN). The 8d markers gave each
+    Phase 7 sub-phase a `(✅ landed 2026-05-31)` tag but
+    left the paragraph bodies in planning-era future tense
+    ("Add a CI workflow that on push/PR...", "the CLI will
+    rewrite..."). Convert each sub-phase paragraph to
+    retrospective past tense, and append each sub-phase's
+    actual codex-round delta in a short annotation block:
+      - 7a: codex clean.
+      - 7b: arithmetic + suppression-table accuracy + Phase 6
+        close-out anchor.
+      - 7c: rewrite happy-path needed a sentinel + reports-
+        dir-is-a-file rejection.
+      - 7d: empty-row false-pass class → `_EXPECTED_EMPTY`
+        allow-list + label threading.
+      - 7e: NULL c_kin_id detection + row-identity
+        assertion + skip-msg precision.
+      - 7f: tighter payload typing + empty-row guard on the
+        kinship dispatch branch.
+      - 7g: per-file RUF002/RUF003 scoping (was global).
+      - 7h: timeout enforcement + background stderr drainer
+        + safer `__exit__`.
+
+    Mirror identical edits into `WORK_PLAN.zh-CN.md` so the
+    two heads keep parity. Codex review.
+
+  - **9b — `AGENTS.md` Phase 7/8 notes**. AGENTS.md has
+    §0.b but doesn't mention two operationally relevant
+    landings:
+      - CI workflow at `.github/workflows/ci.yml` (Phase 7g).
+        New contributors should expect pytest/ruff to run on
+        every push/PR; if their change touches imports or
+        the non-DB unit tests, they should ensure CI stays
+        green.
+      - ParityHost daemon mode via the `parity_host_daemon`
+        pytest fixture (Phase 7h + 8a). A test that opts in
+        gets the daemon-backed routing for free. Tests that
+        manage their own `with ParityHostDaemon(...) as
+        host:` block still work — Phase 7h's smoke tests
+        are the canonical examples.
+
+    Add a short subsection (~10 lines) covering both.
+    Codex review.
+
+  - **Expected suite delta**: 0 — pure docs.
+
+  - **Out of scope** (per §0.a + 2026-05-30 directive):
+    same exclusions as Phase 8.
+
+  - **Sequencing**: 9a → 9b. Each step ends with codex
+    sign-off + `git push`. Both are doc-only and could be
+    batched, but keeping them separate preserves the
+    Phase 5/6/7/8 codex-per-step rhythm.
+
 ## 9. Open questions
 
 **Resolved during planning:**
