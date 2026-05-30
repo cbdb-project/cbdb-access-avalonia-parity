@@ -356,6 +356,51 @@ AND the scope cbdb_replay does NOT yet cover):
   `tier2_per_person` group; Phase 6b removes the bridge and the
   pair test in the same commit batch.
 
+### phase5e_lookups — no §0.b-compliant pair test possible (added 2026-05-30)
+
+- **First observed**: 2026-05-30 during Phase 6c
+- **Side**: both (question-shape mismatch)
+- **Class**: structurally no cross-engine diff possible
+- **Description**: Phase 6c originally planned to graduate
+  `group_people` and `place_lookup` from Phase 5e smoke-only to
+  full pair tests via `cbdb_replay.lookatgroupdata` /
+  `cbdb_replay.lookatplace`. On inspection neither cbdb_replay
+  module answers the same question as its Avalonia counterpart:
+
+  - **place_lookup**: Avalonia's
+    `IPlaceLookupService.GetPlacesAsync` returns the **place
+    options** dropdown for the UI — every place in the DB. The
+    nearest cbdb_replay module, `lookatplace.run`, returns
+    **people at given places** (BIOG_MAIN filtered by
+    `c_index_addr_id IN (addr_ids)`). Different question shape.
+  - **group_people**: Avalonia's `GroupPeopleQueryResult` is
+    composed entirely of 5 category sub-tables
+    (`StatusRecords`, `OfficeRecords`, `EntryRecords`,
+    `TextRecords`, `AddressRecords`). With all `include_*` flags
+    off it returns 5 empty lists. `lookatgroupdata.run` returns
+    **base BIOG_MAIN records** for the input person list when no
+    category flag is on and raises `NotImplementedError` when
+    any flag is on. The two output shapes have no cross-section
+    that's non-empty on both sides.
+  - **dynasty_lookup**: has no cbdb_replay analogue at all
+    (`DYNASTIES` is a small lookup table; cbdb_replay never
+    wrapped it).
+- **Coverage that REMAINS**: `tests/test_phase5e_lookups_smoke.py`
+  exercises the host for each of the three surfaces — verifies a
+  sensible non-empty result shape using the Avalonia API only.
+- **Coverage that is LOST**: cross-engine row-by-row checks for
+  these three surfaces. Per §0.b that loss is acceptable when no
+  upstream-validated Access query answers the same question.
+- **Suppress rationale**: per §0.b, the only allowed Access-side
+  invocation is `cbdb_replay.lookat*`. None of the three
+  available modules (`lookatplace`, `lookatgroupdata`, none for
+  dynasty) answer the Avalonia question shape.
+- **Suppress until**: `cbdb-user-mdb-tests` adds either
+  (a) a `lookat_place_options` query for the dropdown shape, or
+  (b) a `lookatgroupdata` variant whose return shape matches
+  `GroupPeopleQueryResult`'s category sub-tables, or
+  (c) a `lookatdynasty` lookup module.
+
 ### tier2_per_person — 12 surfaces have no Access ground truth (added 2026-05-30)
 
 - **First observed**: 2026-05-30

@@ -511,18 +511,38 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     ground truth; tracked in `reports/known_issues.md`
     `tier2_per_person`". Codex review.
 
-  - **6c — add Phase 5e pair tests via cbdb_replay**.
-    Two of the three Phase 5e surfaces have a cbdb_replay analogue
-    and can graduate from smoke-only to pair tests:
+  - **6c — Phase 5e pair tests: none feasible (discovered
+    2026-05-30)**. Initial plan was to graduate `group_people` and
+    `place_lookup` from smoke-only to cbdb_replay-backed pair
+    tests. On inspection, neither cbdb_replay module answers the
+    same question:
 
-      | surface       | upstream module               | new test                                  |
-      |---------------|-------------------------------|-------------------------------------------|
-      | group_people  | `cbdb_replay.lookatgroupdata` | `tests/test_phase5e_group_people_pair.py` |
-      | place_lookup  | `cbdb_replay.lookatplace`     | `tests/test_phase5e_place_lookup_pair.py` |
+    - **`place_lookup` vs `cbdb_replay.lookatplace`**: Avalonia's
+      `IPlaceLookupService.GetPlacesAsync` returns the **place
+      dropdown options** (every place in the DB).
+      `lookatplace.run` returns **people at given places** —
+      `BIOG_MAIN` records filtered by `c_index_addr_id IN
+      (addr_ids)`. Different question, different output shape.
+      Cannot cross-engine diff under §0.b.
+    - **`group_people` vs `cbdb_replay.lookatgroupdata`**:
+      Avalonia's `GroupPeopleQueryResult` contains **only 5
+      category sub-tables** (`StatusRecords`, `OfficeRecords`,
+      `EntryRecords`, `TextRecords`, `AddressRecords`); with all
+      `include_*` flags off it returns 5 empty lists.
+      `lookatgroupdata.run` returns **base `BIOG_MAIN` records**
+      for the input person list when no category flag is on, and
+      raises `NotImplementedError` if any flag is on. The two
+      output shapes have no overlap — no cross-engine diff is
+      possible under §0.b.
 
-    `dynasty_lookup` has no cbdb_replay analogue and stays
-    smoke-only (the current `tests/test_phase5e_lookups_smoke.py`
-    coverage is the floor). Codex review.
+    `dynasty_lookup` has no cbdb_replay analogue at all
+    (`DYNASTIES` is a small lookup table; cbdb_replay never
+    needed a wrapper for it).
+
+    Action: all three Phase 5e surfaces stay smoke-only. The
+    current `tests/test_phase5e_lookups_smoke.py` IS the §0.b-
+    compliant floor. Document the discovery in
+    `reports/known_issues.md`. Codex review of the documentation.
 
   - **6d — biog_basic keyword branch coverage**.
     Add a keyword-search case (e.g. `keyword="王安石"`) to
@@ -532,15 +552,18 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     cbdb_replay analogue so Phase 4 stays out of scope per 6b.
     Codex review.
 
-  - **Expected test-suite delta** (revised after 6a discovery):
+  - **Expected test-suite delta** (revised after 6a + 6c
+    discoveries):
     - 13 Phase 4 tests deleted (6b) — pure subtraction (was 12; +1
-      for associations relocation).
+      for associations relocation in 6a).
     - 1 Phase 4 test rewritten (6a) — same count, different backend
       (was 2; -1 for associations relocation).
-    - 2 Phase 5e pair tests added (6c) — pure addition.
+    - 0 Phase 5e pair tests added (6c) — was 2; -2 after the 6c
+      discovery that neither lookatplace nor lookatgroupdata
+      answers the matching Avalonia question.
     - 1 Phase 5c case added (6d) — pure addition.
 
-    Current floor: 364 passed. Projected: ~354 passed. The 13-test
+    Current floor: 364 passed. Projected: ~352 passed. The 13-test
     drop is the explicit cost of enforcing §0.b — those tests were
     asserting "my hand-written SQL == upstream's SQL", which the
     new rule classifies as a false oracle.
