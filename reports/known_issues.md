@@ -460,7 +460,24 @@ AND the scope cbdb_replay does NOT yet cover):
 
 ## Suppression sunset
 
-Per WORK_PLAN §7, every entry in this file should also have a
-follow-up tracking issue in `cbdb-project`'s issue tracker. The
-file is a quick-reference only; the issue tracker is the
-canonical action list.
+This file IS the canonical action list (updated 2026-05-30 per
+the user directive that excluded F1/F2 — no GitHub issue filing
+against this repo or any other repo to track these entries). Each
+entry's **Suppress until** line names the upstream condition that
+would re-arm the affected test:
+
+- conditions naming `cbdb-user-mdb-tests` need an upstream commit
+  there (e.g. a new `lookat<surface>` module, a multi-hop
+  LookAtKinship variant, a LEFT JOIN variant).
+- conditions naming `cbdb-desktop-app` need an upstream commit
+  there (e.g. Texts / Networks / AssociationPairs services, a
+  `GetPeopleAtPlacesAsync` matching `lookatplace`'s shape).
+- a few entries are symmetric: either side gaining the matching
+  question shape clears them.
+
+Per WORK_PLAN §0.a we don't make those upstream changes from
+this repo. Per the 2026-05-30 directive we don't file issues to
+request them either. When a downstream consumer notices a
+suppression has become obsolete (the upstream condition was met),
+they delete the entry here and re-arm the affected test as part
+of the same PR.

@@ -409,6 +409,21 @@ Access form 的**最簡 smoke-test 子分支**。Access VBA form 支援的
 
 ## 豁免到期管理
 
-依 WORK_PLAN §7,本檔每個條目都應該在 `cbdb-project` 的 issue tracker
-中對應一個追蹤 issue。本檔只是快速參考;canonical 行動清單在
-issue tracker。
+本檔自身就是 canonical 行動清單（2026-05-30 用戶指示明確
+排除 F1/F2 —— 不在本 repo 或任何 repo 開 GitHub issue 追蹤
+這些條目）。每個條目的 **豁免至** 行寫明了會重新打開對應
+測試的上游條件：
+
+- 提到 `cbdb-user-mdb-tests` 的條件需要那邊一個上游 commit
+  （例如新的 `lookat<surface>` 模組、multi-hop LookAtKinship
+  變體、LEFT JOIN 變體）。
+- 提到 `cbdb-desktop-app` 的條件需要那邊一個上游 commit
+  （例如 Texts / Networks / AssociationPairs service、與
+  `lookatplace` 形狀匹配的 `GetPeopleAtPlacesAsync`）。
+- 少數條目是對稱的：任一側獲得對應的 question shape 都會
+  清除它。
+
+按 WORK_PLAN §0.a 我們不從本 repo 做那些上游改動。按
+2026-05-30 指示我們也不開 issue 去請求。當下游使用者發現某
+條 suppression 已經失效（上游條件被滿足），他們把這裡的條
+目刪掉並在同一個 PR 裡 re-arm 對應的測試。

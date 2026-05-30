@@ -17,7 +17,11 @@ rather than the list-of-ids the Avalonia request exposes. Requests
 that use any of those unsupported branches are rejected with
 NotImplementedError — silently dropping them would let the Access side
 run a broader query than Avalonia and produce false parity mismatches.
-Phase 4 will widen the bridge as the cross-section grows.
+Under WORK_PLAN §0.b (added Phase 6) we no longer widen the bridge
+inside this repo: widening requires upstream changes to either
+`cbdb_replay.lookatoffice` or the Avalonia request shape. The
+rejected branches stay documented as known gaps in
+`reports/known_issues.md` until upstream catches up.
 """
 
 from __future__ import annotations
@@ -92,8 +96,12 @@ def _avalonia_request_to_replay_inputs(
     Avalonia filters cbdb_replay's LookAtOffice CANNOT honour are
     rejected upfront — silently dropping them would let the Access side
     run a broader query than Avalonia and produce false parity
-    mismatches. Phase 4 can either teach cbdb_replay these branches or
-    bypass the replay with a direct pyodbc SELECT.
+    mismatches. Under §0.b we no longer teach cbdb_replay these
+    branches from inside this repo; a future upstream change to either
+    `cbdb_replay.lookatoffice` (so it handles the rejected branches)
+    or `OfficeQueryRequest` (so the Avalonia side stops emitting
+    them) clears the rejection. Hand-writing a pyodbc SELECT to
+    cover the gap would itself be a §0.b violation.
     """
     # Reject branches where cbdb_replay/lookatoffice would NOT match the
     # Avalonia SQL.

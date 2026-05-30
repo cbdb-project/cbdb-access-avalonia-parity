@@ -14,9 +14,10 @@ namespace Cbdb.App.ParityHost;
 ///
 ///     cbdb-parity-host &lt;service&gt; &lt;sqlite-path&gt;
 ///
-/// The request body is read from STDIN (one JSON document, NDJSON
-/// daemon mode comes in a later commit). The response is written to
-/// STDOUT, also as one JSON document. Errors go to STDERR as
+/// The request body is read from STDIN (one JSON document; for the
+/// NDJSON daemon mode added in Phase 7h, invoke with `--daemon`).
+/// The response is written to STDOUT, also as one JSON document.
+/// Errors go to STDERR as
 /// `{"error": "...", "stack": "..."}` and produce a non-zero exit
 /// code.
 ///

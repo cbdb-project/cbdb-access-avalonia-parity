@@ -1,10 +1,17 @@
 """Python wrapper around the Cbdb.App.ParityHost .NET console.
 
-The harness invokes the host via `subprocess` for each request:
-JSON-serialise the request → stdin, JSON-parse the response from
-stdout. Cold-start cost is ~500ms-1s per call; the NDJSON daemon
-mode that amortises that comes in a later commit (Phase 5a-5 per
-WORK_PLAN.md).
+The harness has two execution modes:
+
+  - One-shot (Phase 5a): every call spawns a fresh
+    `dotnet run` subprocess, JSON-serialises the request →
+    stdin, JSON-parses the response from stdout. Cold-start
+    cost is ~500ms-1s per call.
+  - Daemon (Phase 7h + 8a binding): a single long-lived
+    subprocess speaks NDJSON over stdin/stdout, so each call
+    is a single JSON line round-trip. Per-call cost drops to
+    tens of milliseconds. Activated by binding a
+    `ParityHostDaemon` via `bind_active_daemon(...)` or the
+    `parity_host_daemon` pytest fixture in `tests/conftest.py`.
 
 Per `WORK_PLAN.md §Phase 5a` the contract:
   - AVALONIA_REPO env var must be set so MSBuild's
@@ -148,7 +155,9 @@ def invoke_parity_host(
         as AVALONIA_REPO into the subprocess environment.
     timeout_seconds: cold-start is ~1s, queries return in <100ms
         on the canonical dataset, so 60s is comfortable for one-shot
-        mode. Daemon mode (Phase 5a-5) drops this dramatically.
+        mode. Daemon mode (Phase 7h, bound via
+        `bind_active_daemon`) drops the cold-start cost to zero
+        across an entire pytest session.
 
     Returns
     -------

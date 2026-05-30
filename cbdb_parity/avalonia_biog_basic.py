@@ -1,9 +1,12 @@
-"""Phase 5c-final batch 2 — thin wrapper around SearchAsync
-(no-keyword branch) via the ParityHost.
+"""Phase 5c-final batch 2 — thin wrapper around SearchAsync via
+the ParityHost.
 
-The mirror only ports the no-keyword path today (Phase 4 partial-
-paired surface). SearchAsync upstream supports keyword search too;
-when a follow-up wants to cover that, just pass `keyword` through.
+The wrapper accepts an optional `keyword` and threads it through
+to the upstream service. All three SearchAsync branches
+(no-keyword corpus prefix, numeric → person_id exact match,
+non-numeric → LIKE-across-names + ALTNAME_DATA) are covered by
+`tests/test_phase5c_person_mirror_vs_host.py::
+test_biog_basic_*_mirror_vs_host` (Phase 6d + Phase 7d).
 """
 
 from __future__ import annotations
