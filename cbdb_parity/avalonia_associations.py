@@ -14,7 +14,6 @@ from cbdb_parity._person_accessor_host import (
     resolve_avalonia_repo,
 )
 
-
 _ASSOC_RECORD_FIELDS: tuple[str, ...] = (
     "sequence", "count", "associate_person_id",
     "associate_name_chn", "associate_name", "association",

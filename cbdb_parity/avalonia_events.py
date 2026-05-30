@@ -17,7 +17,6 @@ from cbdb_parity._person_accessor_host import (
     resolve_avalonia_repo,
 )
 
-
 _EVENT_RECORD_FIELDS: tuple[str, ...] = (
     "sequence", "event_name", "role", "year", "nianhao",
     "nianhao_year", "month", "intercalary", "day", "ganzhi",

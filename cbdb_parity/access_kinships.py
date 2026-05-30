@@ -103,7 +103,8 @@ def kinships_query_access(
     """Run `cbdb_replay.lookatkinship.run` and project to Avalonia shape."""
     _ensure_cbdb_replay_on_path(access_tests_repo)
     import pyodbc
-    from cbdb_replay.lookatkinship import KinshipQueryInputs, run as replay_run
+    from cbdb_replay.lookatkinship import KinshipQueryInputs
+    from cbdb_replay.lookatkinship import run as replay_run
 
     conn_str = (
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"

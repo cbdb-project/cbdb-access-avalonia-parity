@@ -98,10 +98,10 @@ def _load_user_mdb_tests_cases(cfg):
 
     # Status / Office: defined as individual functions in test_other_lookat_forms.
     # Re-declare the inputs inline so the scan stays self-contained.
-    from cbdb_replay.lookatstatus import StatusQueryInputs
-    from cbdb_replay.lookatoffice import OfficeQueryInputs
-    from cbdb_replay.lookatentry import EntryQueryInputs as _EntryQI  # noqa: F401
     from cbdb_replay.common import YearFilter
+    from cbdb_replay.lookatentry import EntryQueryInputs as _EntryQI  # noqa: F401
+    from cbdb_replay.lookatoffice import OfficeQueryInputs
+    from cbdb_replay.lookatstatus import StatusQueryInputs
 
     cases.append((
         "status", "empty_codes",
@@ -406,30 +406,33 @@ def test_replay_scan(
     import sqlite3
     try:
         if category == "entry":
-            from cbdb_parity.avalonia_query import entry_query
             from cbdb_parity.access_query import (
-                entry_query_access, entry_query_common_fields,
                 _ensure_cbdb_replay_on_path,
+                entry_query_access,
+                entry_query_common_fields,
             )
+            from cbdb_parity.avalonia_query import entry_query
             _ensure_cbdb_replay_on_path(cfg.access_tests_repo)
             avalonia_rows = entry_query(sqlite_path, avalonia_request, avalonia_data_dir=avalonia_data)
             access_rows = entry_query_access(mdb_path, avalonia_request, access_tests_repo=cfg.access_tests_repo)
             key_fields = ("person_id", "sequence")
             compare_fields = entry_query_common_fields()
         elif category == "status":
-            from cbdb_parity.avalonia_status_query import status_query
             from cbdb_parity.access_status_query import (
-                status_query_access, status_query_common_fields,
+                status_query_access,
+                status_query_common_fields,
             )
+            from cbdb_parity.avalonia_status_query import status_query
             avalonia_rows = status_query(sqlite_path, avalonia_request, avalonia_data_dir=avalonia_data)
             access_rows = status_query_access(mdb_path, avalonia_request, access_tests_repo=cfg.access_tests_repo)
             key_fields = ("person_id", "sequence")
             compare_fields = status_query_common_fields()
         elif category == "office":
-            from cbdb_parity.avalonia_office_query import office_query
             from cbdb_parity.access_office_query import (
-                office_query_access, office_query_common_fields,
+                office_query_access,
+                office_query_common_fields,
             )
+            from cbdb_parity.avalonia_office_query import office_query
             avalonia_rows = office_query(sqlite_path, avalonia_request, avalonia_data_dir=avalonia_data)
             access_rows = office_query_access(mdb_path, avalonia_request, access_tests_repo=cfg.access_tests_repo)
             # Office shape: same diff key as Phase 3d (see
@@ -457,10 +460,11 @@ def test_replay_scan(
             # the canonical 2026-04-30 Datadump KIN_DATA has zero
             # orphans so the scan should pass exactly when the
             # dedicated pair test passes.
-            from cbdb_parity.avalonia_kinships import kinships_query
             from cbdb_parity.access_kinships import (
-                kinships_common_fields, kinships_query_access,
+                kinships_common_fields,
+                kinships_query_access,
             )
+            from cbdb_parity.avalonia_kinships import kinships_query
             person_id = avalonia_request["person_id"]  # already int per translator check
             avalonia_rows = kinships_query(
                 sqlite_path, person_id, avalonia_data_dir=avalonia_data,

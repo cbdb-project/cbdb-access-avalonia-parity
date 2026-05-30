@@ -14,7 +14,6 @@ from cbdb_parity._person_accessor_host import (
     resolve_avalonia_repo,
 )
 
-
 _ADDRESS_RECORD_FIELDS: tuple[str, ...] = (
     "sequence", "natal", "address_type", "address_name_chn", "address_name",
     "first_year", "first_nianhao", "first_nianhao_year", "first_month",

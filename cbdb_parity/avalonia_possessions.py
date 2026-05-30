@@ -13,7 +13,6 @@ from cbdb_parity._person_accessor_host import (
     resolve_avalonia_repo,
 )
 
-
 _POSSESSION_RECORD_FIELDS: tuple[str, ...] = (
     "record_id", "sequence", "possession", "possession_action",
     "quantity", "measure", "year", "nianhao", "nianhao_year",

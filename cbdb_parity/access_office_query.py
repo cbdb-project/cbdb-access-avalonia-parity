@@ -248,6 +248,7 @@ def office_query_access(
     """
     if len(request.dynasty_ids) > 1:
         from dataclasses import replace
+
         import pyodbc
         combined: list[dict[str, Any]] = []
         seen: set[tuple[Any, ...]] = set()

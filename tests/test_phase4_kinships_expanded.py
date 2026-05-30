@@ -16,8 +16,6 @@ verifies structural invariants of the port:
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 

@@ -14,7 +14,6 @@ from cbdb_parity._person_accessor_host import (
     resolve_avalonia_repo,
 )
 
-
 _ALTNAME_RECORD_FIELDS: tuple[str, ...] = (
     "sequence", "alt_name_chn", "alt_name", "name_type",
     "source", "pages", "notes",

@@ -14,7 +14,6 @@ from cbdb_parity._person_accessor_host import (
     resolve_avalonia_repo,
 )
 
-
 _SOURCE_RECORD_FIELDS: tuple[str, ...] = (
     "title_chn", "title", "pages", "notes",
     "main_source", "self_bio", "hyperlink",

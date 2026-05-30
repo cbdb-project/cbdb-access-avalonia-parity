@@ -1,0 +1,89 @@
+name: CI
+
+# Phase 7g — see WORK_PLAN.md §Phase 7 entry "7g".
+#
+# This workflow runs on every push and pull request. It is
+# deliberately narrow: the parity-test infrastructure depends on
+# (a) a Windows-only Access ODBC driver, (b) the Datadump → mdb +
+# Datadump → sqlite build pipeline that requires real database
+# tooling, and (c) the `Cbdb.App.ParityHost` console that needs a
+# clone of `cbdb-desktop-app` available at `$AVALONIA_REPO`. None
+# of those are practical to provision on a stock GitHub Actions
+# runner.
+#
+# What we DO check on every push/PR:
+#   - imports / syntax (pytest --collect-only)
+#   - pure-Python unit tests that don't touch the DB or ParityHost
+#     (test_summary_report.py, test_diff_report.py, …)
+#   - ruff lint on `cbdb_parity/` and `tests/`
+#
+# What stays a local-only gate:
+#   - every test in tests/test_phase*.py that requires `mdb_path`
+#     or the ParityHost build (they pytest.skip when prereqs are
+#     missing; CI will skip them rather than fail, but we still
+#     don't want CI to attempt them and waste time).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  collect-and-test:
+    name: Collect + non-DB unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install (dev + harness only; access extra is Windows-only)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev,harness]"
+
+      - name: pytest --collect-only (catches imports / syntax)
+        # `tests/test_phase*` modules import from cbdb_parity.* on
+        # collection; this gate catches a broken import path even if
+        # no test would actually run on CI.
+        run: pytest --collect-only -q
+
+      - name: Run non-DB unit tests
+        # Explicit list of tests that don't depend on mdb / sqlite /
+        # ParityHost / pyodbc. Anything new in this bucket should be
+        # added here.
+        run: |
+          pytest \
+            tests/test_summary_report.py \
+            tests/test_diff_report.py \
+            tests/test_config.py \
+            tests/test_datadump.py \
+            tests/test_mysqldump.py \
+            tests/test_access_types.py \
+            tests/test_access_schema.py \
+            -v
+
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dev extras (ruff)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: ruff check
+        run: ruff check cbdb_parity tests

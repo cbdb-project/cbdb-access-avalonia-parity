@@ -154,8 +154,11 @@ def invoke_parity_host(
                 err_payload.get("error", stderr_text),
                 stack=err_payload.get("stack"),
             )
-        except (json.JSONDecodeError, AttributeError):
-            raise ParityHostError(stderr_text)
+        except (json.JSONDecodeError, AttributeError) as exc:
+            # `from exc` preserves the JSON-decode failure context so
+            # callers debugging "what did the host actually emit" see
+            # both the raw stderr_text and why parsing it failed.
+            raise ParityHostError(stderr_text) from exc
     return json.loads(proc.stdout.decode("utf-8"))
 
 

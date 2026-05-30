@@ -14,7 +14,6 @@ from cbdb_parity._person_accessor_host import (
     resolve_avalonia_repo,
 )
 
-
 _WRITING_RECORD_FIELDS: tuple[str, ...] = (
     "text_id", "title_chn", "title", "role", "year",
     "nianhao", "nianhao_year", "range", "source", "pages", "notes",

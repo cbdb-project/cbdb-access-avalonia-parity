@@ -14,7 +14,6 @@ from typing import Any
 from cbdb_parity._person_accessor_host import resolve_avalonia_repo
 from cbdb_parity.parity_host import invoke_parity_host
 
-
 _BIOG_BASIC_FIELDS: tuple[str, ...] = (
     "person_id",     # PersonListItem.PersonId
     "name_chn",      # PersonListItem.NameChn

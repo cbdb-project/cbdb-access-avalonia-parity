@@ -31,7 +31,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-
 _POSTING_RECORD_FIELDS: tuple[str, ...] = (
     "posting_id", "office_id", "sequence",
     "office_name_chn", "office_name",

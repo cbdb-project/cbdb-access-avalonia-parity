@@ -1,20 +1,19 @@
 {
   "datadump_sha": "ed294faed44b36e80169cae8815f83d9d9c5ca3cdb79520c8d058383ad52eb43",
-  "generated_at": "2026-05-30T07:23:33.093164+00:00",
+  "generated_at": "2026-05-30T07:26:04.185148+00:00",
   "only_in_access": [],
   "only_in_avalonia": [],
-  "query_id": "entry_basic",
+  "query_id": "kinship__fan_zhongyan_8043",
   "request": {
-    "entry_codes": [
-      "36"
-    ],
-    "limit": 200
+    "case_id": "fan_zhongyan_8043",
+    "category": "kinship",
+    "replay_inputs": "{'person_id': 8043}"
   },
   "stats": {
     "matches": true,
-    "rows_access": 200,
-    "rows_avalonia": 200,
-    "rows_matching": 200,
+    "rows_access": 23,
+    "rows_avalonia": 23,
+    "rows_matching": 23,
     "rows_only_in_access": 0,
     "rows_only_in_avalonia": 0,
     "rows_value_mismatch": 0

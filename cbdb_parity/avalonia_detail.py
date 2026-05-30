@@ -15,7 +15,6 @@ from typing import Any
 from cbdb_parity._person_accessor_host import resolve_avalonia_repo
 from cbdb_parity.parity_host import invoke_parity_host
 
-
 # Phase 4 access bridge still uses these — count queries match the
 # upstream COUNT(*) suffixes appended to GetDetailAsync. Kept here
 # rather than duplicated in access_detail.py so a future schema

@@ -17,7 +17,6 @@ from typing import Any
 from cbdb_parity._person_accessor_host import resolve_avalonia_repo
 from cbdb_parity.parity_host import invoke_parity_host
 
-
 _EXPANDED_KINSHIP_FIELDS: tuple[str, ...] = (
     "kin_person_id", "kinship", "kin_name_chn", "kin_name",
     "is_derived",

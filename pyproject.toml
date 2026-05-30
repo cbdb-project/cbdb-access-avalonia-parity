@@ -97,4 +97,7 @@ select = [
 ]
 ignore = [
     "E501",     # line-too-long — soft-enforced; ruff format handles wrapping
+    "RUF002",   # ambiguous Unicode chars in docstrings (× / − are intentional
+                # in technical text: SELECT × LIMIT, mirror_keys − host_keys, …)
+    "RUF003",   # same, in comments
 ]

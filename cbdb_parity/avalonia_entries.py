@@ -14,7 +14,6 @@ from cbdb_parity._person_accessor_host import (
     resolve_avalonia_repo,
 )
 
-
 _ENTRY_RECORD_FIELDS: tuple[str, ...] = (
     "sequence", "entry_method", "exam_rank", "year", "nianhao", "nianhao_year",
     "dynasty", "range", "age", "kinship", "kin_name_chn", "kin_name",

@@ -1,7 +1,7 @@
 # Query `kinships_basic_person` parity report
 
 **Verdict**: PASS
-**Generated**: 2026-05-30T06:33:11.304422+00:00
+**Generated**: 2026-05-30T07:25:41.095053+00:00
 **Datadump SHA**: `ed294faed44b36e80169cae8815f83d9d9c5ca3cdb79520c8d058383ad52eb43`
 
 ## Stats

@@ -1,13 +1,13 @@
-# Query `office_basic` parity report
+# Query `kinship__li_bai_32540` parity report
 
 **Verdict**: PASS
-**Generated**: 2026-05-30T07:23:38.132549+00:00
+**Generated**: 2026-05-30T07:26:00.841732+00:00
 **Datadump SHA**: `ed294faed44b36e80169cae8815f83d9d9c5ca3cdb79520c8d058383ad52eb43`
 
 ## Stats
-- Rows Avalonia: 1
-- Rows Access: 1
-- Matching: 1
+- Rows Avalonia: 10
+- Rows Access: 10
+- Matching: 10
 - Only in Avalonia: 0
 - Only in Access: 0
 - Value mismatches (same key, different fields): 0
@@ -15,10 +15,9 @@
 ## Request
 ```json
 {
-  "office_codes": [
-    "7"
-  ],
-  "limit": 200
+  "category": "kinship",
+  "case_id": "li_bai_32540",
+  "replay_inputs": "{'person_id': 32540}"
 }
 ```
 
