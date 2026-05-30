@@ -206,7 +206,7 @@ Phase 1.3b 在真实 1.4 GB 五月 27 号 Datadump 上跑端到端时撞到两�
 2. **Office 查询** —— Avalonia `IOfficeQueryService.QueryAsync` ↔ Access `cbdb_replay/lookatoffice` + Form_LookAtOffice CmdQuery
 3. **Status 查询** —— Avalonia `IStatusQueryService.QueryAsync` ↔ Access `cbdb_replay/lookatstatus` + Form_LookAtStatus CmdQuery
 
-BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Phase 4 做窄化处理后再配对。
+BIOG basic、kinship recursive、associations 当时有形状不匹配，需要做窄化处理后再配对——这一步在 Phase 4 落地，Phase 5c-final + Phase 6 之后被重新评估（结果是把大部分由此产生的 bridge 按 §0.b 非合规退役；当前状态见 §8 Phase 4 历史段和 §9 Post-Phase-9 status）。
 
 ## 7. 报告与根因循环
 - 顶层 `reports/SUMMARY.md`：总查询数、已配对、通过、失败、Avalonia 缺失。
@@ -852,9 +852,13 @@ backlog；执行中 Phase 7 收尾审计带出 Phase 8 的四个子阶段
 Phase 7/8 操作段）。Phase 9 关闭后，suite-count 契约是：
 
 - **387 passed**（Phase 6 close 时是 354 → +33 净 delta：
-  Phase 7a/7c/7d/7e/7f/7h 加了 34 个 passing case，然后
-  Phase 8a 把 7h 那个专用 daemon smoke test 收编到
-  session-bound 路径 -1，所以 354 + 34 − 1 = 387）。
+  Phase 7c 加 4、Phase 7d 加 22、Phase 7e 加 1 个 case 但
+  在 canonical dump 上当前 skip（orphan-kin 证明 case）、
+  Phase 7f 加 3、Phase 7h 加 4；Phase 7a/7b/7g 纯文档 /
+  CI / lint，加 0 个 passing case；所以 Phase 7 净加
+  4 + 22 + 0 + 3 + 0 + 4 = 33。Phase 8a 把已有的 Phase 7h
+  daemon smoke test 绑到 session fixture，没改测试数。
+  354 + 33 = 387）。
 - **7 skipped**——都有文档：
   - 3 个 `replay_scan[entry/…_indexyears/_entryyears]`
     case，Avalonia EntryQueryRequest 无法表达

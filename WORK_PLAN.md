@@ -217,7 +217,7 @@ Both fixes hold the Datadump-direct path together, but the **Datadump → Access
 2. **Office query** — Avalonia `IOfficeQueryService.QueryAsync` vs Access `cbdb_replay/lookatoffice` + Form_LookAtOffice CmdQuery
 3. **Status query** — Avalonia `IStatusQueryService.QueryAsync` vs Access `cbdb_replay/lookatstatus` + Form_LookAtStatus CmdQuery
 
-BIOG basic, kinship recursive, and associations have shape mismatches that need a Phase 4 narrowing step before they're paired.
+BIOG basic, kinship recursive, and associations had shape mismatches that required a narrowing step before pairing — resolved during Phase 4 and then re-evaluated by Phase 5c-final + Phase 6 (which retired most of the resulting bridges as §0.b non-compliant; see §8 Phase 4 historical block and §9 Post-Phase-9 status for the current state).
 
 ## 7. Reporting & root-cause loop
 - Top-level `reports/SUMMARY.md` aggregates: total queries, paired, passing, failing, Avalonia-missing.
@@ -1187,9 +1187,14 @@ Phase 7 sub-phases, 9b AGENTS.md Phase 7/8 operational notes).
 With Phase 9 closed, the suite-count contract is:
 
 - **387 passed** (was 354 at Phase 6 close → +33 net delta:
-  Phase 7a/7c/7d/7e/7f/7h added 34 passing cases, then
-  Phase 8a consolidated the dedicated daemon smoke test into
-  the session-bound path for -1, so 354 + 34 − 1 = 387).
+  Phase 7c added 4, Phase 7d added 22, Phase 7e added 1 case
+  that currently skips on the canonical dump (the
+  orphan-kin proof case), Phase 7f added 3, Phase 7h added 4;
+  Phase 7a/7b/7g were pure docs/CI/lint and added 0 passing
+  cases; so Phase 7 net is 4 + 22 + 0 + 3 + 0 + 4 = 33. Phase
+  8a rebound the existing Phase 7h daemon smoke test to the
+  session fixture without changing the test count. 354 + 33 =
+  387).
 - **7 skipped** — all documented:
   - 3 `replay_scan[entry/…_indexyears/_entryyears]` cases
     where Avalonia EntryQueryRequest can't model
