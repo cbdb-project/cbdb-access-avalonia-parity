@@ -182,6 +182,45 @@ _MIRROR_ID_FIELDS: dict[str, tuple[str, ...]] = {
 }
 
 
+# Codex round on the 7d parametrise flagged a real false-pass class:
+# `_run_person_pair` accepted `[] == []` as a pass, so any
+# (accessor, person_id) combo with zero rows on the canonical
+# build silently passed without exercising the upstream SQL at all.
+#
+# This explicit allow-list documents the combos where ZERO rows is
+# the expected, non-regression state on the current canonical
+# dataset (Datadump 2026-04-30). Any combo NOT in this set must
+# produce a non-empty host row list; if it doesn't, the test fails
+# with a "fixture produced zero rows where some were expected"
+# diagnostic — that catches a real regression instead of hiding it.
+#
+# Membership rationale (verified at fixture-design time via direct
+# COUNT(*) probes on cbdb.sqlite, 2026-05-31):
+#   - possessions: POSSESSION_DATA has zero rows for all three
+#     fixtures. POSSESSION_DATA is sparsely populated in CBDB
+#     overall; the canonical fixtures don't happen to be among
+#     the few people who have entries.
+#   - institutions: BIOG_INST_DATA same situation.
+#   - events for li_bai / zhu_xi: EVENTS_DATA is also sparse;
+#     wang_anshi has 1 event, the others have 0.
+#
+# If any of these starts returning non-empty rows on a future
+# dump, the assertion in `_run_person_pair` will fail and we'll
+# refresh this list with the new ground truth. Inverse direction
+# (a combo expected non-empty going empty) is the regression
+# signal we wanted from 7d in the first place.
+_EXPECTED_EMPTY: frozenset[tuple[str, int]] = frozenset({
+    ("possessions",  1762),
+    ("possessions",  32540),
+    ("possessions",  3257),
+    ("institutions", 1762),
+    ("institutions", 32540),
+    ("institutions", 3257),
+    ("events",       32540),
+    ("events",       3257),
+})
+
+
 def _run_person_pair(
     service: str,
     mirror_fn,
@@ -189,6 +228,7 @@ def _run_person_pair(
     id_fields: tuple[str, ...] = (),
     ignore_fields: frozenset[str] = frozenset(),
     person_id: int = _FIXTURE_PERSON,
+    label: str | None = None,
 ) -> None:
     cfg = _load_config_or_skip()
     _prereqs_or_skip(cfg.avalonia_repo)
@@ -198,6 +238,8 @@ def _run_person_pair(
 
     from cbdb_parity.parity_host import invoke_person_accessor_via_host
 
+    tag = f"{service}/{label}" if label is not None else service
+
     avalonia_data = cfg.avalonia_repo / "Cbdb.App.Data"
     mirror_rows = mirror_fn(
         sqlite_path, person_id, avalonia_data_dir=avalonia_data,
@@ -206,11 +248,34 @@ def _run_person_pair(
         service, sqlite_path, person_id, avalonia_repo=cfg.avalonia_repo,
     )
 
+    # Phase 7d codex round: false-pass guard. A combo not in
+    # `_EXPECTED_EMPTY` must produce at least one row on the
+    # canonical dataset, otherwise the parametrised case provides
+    # no signal on this accessor at all.
+    expected_empty = (service, person_id) in _EXPECTED_EMPTY
+    if expected_empty:
+        assert len(host_rows) == 0, (
+            f"{tag}: host returned {len(host_rows)} rows but the "
+            f"combo is in _EXPECTED_EMPTY. The canonical dataset has "
+            f"started populating this surface for this person; "
+            f"refresh _EXPECTED_EMPTY against the new ground truth."
+        )
+    else:
+        assert len(host_rows) > 0, (
+            f"{tag}: host returned 0 rows but the combo is NOT in "
+            f"_EXPECTED_EMPTY. Either the canonical dataset stopped "
+            f"populating this surface for this person (real "
+            f"regression — investigate upstream / Datadump), or "
+            f"the fixture choice is wrong for this accessor and "
+            f"the combo should be added to _EXPECTED_EMPTY with a "
+            f"recorded rationale."
+        )
+
     # Strip the mirror's spliced raw-ID columns so the schema check
     # sees only the upstream-record-shaped fields.
     mirror_clean = _strip_id_fields(mirror_rows, id_fields)
     _assert_rows_equal(
-        service, mirror_clean, host_rows, ignore_fields=ignore_fields,
+        tag, mirror_clean, host_rows, ignore_fields=ignore_fields,
     )
 
 
@@ -227,7 +292,8 @@ def test_addresses_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_addresses import addresses_query
     _run_person_pair(
         "addresses", addresses_query,
-        id_fields=_MIRROR_ID_FIELDS["addresses"], person_id=person_id,
+        id_fields=_MIRROR_ID_FIELDS["addresses"],
+        person_id=person_id, label=label,
     )
 
 
@@ -236,7 +302,8 @@ def test_altnames_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_altnames import altnames_query
     _run_person_pair(
         "altnames", altnames_query,
-        id_fields=_MIRROR_ID_FIELDS["altnames"], person_id=person_id,
+        id_fields=_MIRROR_ID_FIELDS["altnames"],
+        person_id=person_id, label=label,
     )
 
 
@@ -245,7 +312,8 @@ def test_writings_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_writings import writings_query
     _run_person_pair(
         "writings", writings_query,
-        id_fields=_MIRROR_ID_FIELDS["writings"], person_id=person_id,
+        id_fields=_MIRROR_ID_FIELDS["writings"],
+        person_id=person_id, label=label,
     )
 
 
@@ -254,7 +322,8 @@ def test_entries_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_entries import entries_query
     _run_person_pair(
         "entries", entries_query,
-        id_fields=_MIRROR_ID_FIELDS["entries"], person_id=person_id,
+        id_fields=_MIRROR_ID_FIELDS["entries"],
+        person_id=person_id, label=label,
     )
 
 
@@ -263,7 +332,8 @@ def test_statuses_person_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_statuses_person import statuses_person_query
     _run_person_pair(
         "statuses", statuses_person_query,
-        id_fields=_MIRROR_ID_FIELDS["statuses"], person_id=person_id,
+        id_fields=_MIRROR_ID_FIELDS["statuses"],
+        person_id=person_id, label=label,
     )
 
 
@@ -272,7 +342,8 @@ def test_possessions_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_possessions import possessions_query
     _run_person_pair(
         "possessions", possessions_query,
-        id_fields=_MIRROR_ID_FIELDS["possessions"], person_id=person_id,
+        id_fields=_MIRROR_ID_FIELDS["possessions"],
+        person_id=person_id, label=label,
     )
 
 
@@ -281,7 +352,8 @@ def test_events_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_events import events_query
     _run_person_pair(
         "events", events_query,
-        id_fields=_MIRROR_ID_FIELDS["events"], person_id=person_id,
+        id_fields=_MIRROR_ID_FIELDS["events"],
+        person_id=person_id, label=label,
     )
 
 
@@ -290,7 +362,8 @@ def test_associations_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_associations import associations_query
     _run_person_pair(
         "associations", associations_query,
-        id_fields=_MIRROR_ID_FIELDS["associations"], person_id=person_id,
+        id_fields=_MIRROR_ID_FIELDS["associations"],
+        person_id=person_id, label=label,
     )
 
 
@@ -299,7 +372,8 @@ def test_sources_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_sources import sources_query
     _run_person_pair(
         "sources", sources_query,
-        id_fields=_MIRROR_ID_FIELDS["sources"], person_id=person_id,
+        id_fields=_MIRROR_ID_FIELDS["sources"],
+        person_id=person_id, label=label,
     )
 
 
@@ -308,7 +382,8 @@ def test_institutions_mirror_vs_host(person_id: int, label: str) -> None:
     from cbdb_parity.avalonia_institutions import institutions_query
     _run_person_pair(
         "institutions", institutions_query,
-        id_fields=_MIRROR_ID_FIELDS["institutions"], person_id=person_id,
+        id_fields=_MIRROR_ID_FIELDS["institutions"],
+        person_id=person_id, label=label,
     )
 
 
