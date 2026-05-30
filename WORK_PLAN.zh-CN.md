@@ -807,7 +807,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     不需要 Windows ODBC；实际理由是 Datadump + MariaDB
     cache 都在 contributor 本机，不在 GHA runner——按
     builder 拆分了说明）；子节日期 "(added 2026-05-31)"
-    比实际 commit 日期 2026-05-30 提前了一天，借此发现
+    比实际 commit 日期 2026-05-30 晚了一天，借此发现
     Phase 7 起 WORK_PLAN / AGENTS / README 里 37 个
     `(✅ landed 2026-05-31)` 标签全部错了一天——一并
     sweep 到 2026-05-30。
