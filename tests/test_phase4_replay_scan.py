@@ -143,6 +143,19 @@ def _load_user_mdb_tests_cases(cfg):
         ),
         None,
     ))
+
+    # Phase 7f — kinship cases. cbdb_replay.lookatkinship is a
+    # per-person query (1-hop direct), so the "inputs" here is
+    # just a person_id dict; the translator below is a no-op
+    # pass-through. Wang Anshi (1762) is already covered by
+    # tests/test_phase4_kinships_pair.py + the orphan-kin proof
+    # case there, so this scan adds three more seed persons
+    # spanning Tang (Li Bai), Northern Song (Fan Zhongyan), and
+    # Southern Song (Zhu Xi). All three were verified non-empty
+    # at fixture-design time (5, 10, 23, 29 kin rows).
+    cases.append(("kinship", "li_bai_32540", {"person_id": 32540}, None))
+    cases.append(("kinship", "fan_zhongyan_8043", {"person_id": 8043}, None))
+    cases.append(("kinship", "zhu_xi_3257", {"person_id": 3257}, None))
     return cases
 
 
@@ -257,10 +270,25 @@ def _translate_office_to_avalonia(replay_inputs: Any):
     ), None)
 
 
+def _translate_kinship_to_avalonia(replay_inputs: Any):
+    """No-op translator. cbdb_replay.lookatkinship runs per-person
+    and our case payload is already `{"person_id": <int>}`. The
+    "Avalonia request" for this scan branch is the same dict —
+    the dispatch below reads `person_id` out of it directly.
+    """
+    if not isinstance(replay_inputs, dict) or "person_id" not in replay_inputs:
+        return None, (
+            "kinship case payload must be {'person_id': int}; got "
+            f"{type(replay_inputs).__name__}"
+        )
+    return replay_inputs, None
+
+
 _CATEGORY_TRANSLATORS = {
-    "entry":  _translate_entry_to_avalonia,
-    "status": _translate_status_to_avalonia,
-    "office": _translate_office_to_avalonia,
+    "entry":   _translate_entry_to_avalonia,
+    "status":  _translate_status_to_avalonia,
+    "office":  _translate_office_to_avalonia,
+    "kinship": _translate_kinship_to_avalonia,
 }
 
 
@@ -395,6 +423,33 @@ def test_replay_scan(
             # (codex final-round-1 P1.)
             key_fields = ("person_id", "posting_id", "office_code", "office_address_id")
             compare_fields = office_query_common_fields()
+        elif category == "kinship":
+            # Phase 7f — kinship per-person scan. Avalonia routes
+            # through ParityHost (GetKinshipsAsync, expand_network=
+            # false). Access routes through cbdb_replay.lookatkinship
+            # (Phase 6a). Compare against the same raw cross-section
+            # that test_phase4_kinships_pair.py uses; see
+            # cbdb_parity/access_kinships.py for the §0.b rationale
+            # behind dropping the joined `kinship` label from the
+            # diff. Documented orphan-kin row-set gap (INNER vs LEFT
+            # JOIN) is tracked in
+            # reports/known_issues.md#kinships_basic_person — for
+            # the canonical 2026-04-30 Datadump KIN_DATA has zero
+            # orphans so the scan should pass exactly when the
+            # dedicated pair test passes.
+            from cbdb_parity.avalonia_kinships import kinships_query
+            from cbdb_parity.access_kinships import (
+                kinships_common_fields, kinships_query_access,
+            )
+            person_id = int(avalonia_request["person_id"])
+            avalonia_rows = kinships_query(
+                sqlite_path, person_id, avalonia_data_dir=avalonia_data,
+            )
+            access_rows = kinships_query_access(
+                mdb_path, person_id, access_tests_repo=cfg.access_tests_repo,
+            )
+            key_fields = ("kin_person_id", "kin_code")
+            compare_fields = kinships_common_fields()
         else:
             pytest.skip(f"unsupported category {category!r}")
     except NotImplementedError as exc:
