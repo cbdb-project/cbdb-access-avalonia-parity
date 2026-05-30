@@ -141,41 +141,63 @@ def test_kinships_pair_smoke_end_to_end(tmp_path: Path) -> None:
     )
 
 
-def _find_orphan_kin_person(sqlite_path: Path) -> tuple[int, int] | None:
+def _find_orphan_kin_person(
+    sqlite_path: Path,
+) -> tuple[int, int, frozenset[object]] | None:
     """Scan KIN_DATA for the first person whose kinship list
     includes at least one row pointing at a `c_kin_id` that has no
     matching `BIOG_MAIN.c_personid`.
 
-    Returns `(person_id, expected_orphan_count)` or `None` if the
-    current dataset has no such person. Used by the Phase 7e
-    orphan-kin proof case.
+    Returns `(person_id, expected_orphan_count, orphan_kin_ids)`
+    or `None` if the current dataset has no such person.
+    `orphan_kin_ids` is the set of `c_kin_id` values that flagged
+    the gap (may include `None` if NULL c_kin_id contributed) so
+    callers can verify the specific Avalonia-only rows ARE the
+    orphan ones rather than a count-only check.
 
-    NOTE: this is the SAME orphan condition that
-    `reports/known_issues.md#kinships_basic_person` describes —
-    cbdb_replay's INNER JOIN would drop these rows while Avalonia's
-    LEFT JOIN would surface them with NULL kin names. The Datadump
-    we built the harness against happens to have zero such rows
-    (verified 2026-05-31); the test below skips with a precise
-    diagnostic when that's the case and arms automatically the
-    moment a future dump produces any.
+    Codex 7e round flagged two things:
+    1. The earlier query had `AND kd.c_kin_id IS NOT NULL`, which
+       missed the case where the upstream gap fires on NULL
+       c_kin_id (cbdb_replay's INNER JOIN drops NULL since NULL =
+       anything is unknown; Avalonia's LEFT JOIN keeps it). NULL
+       rows are now included.
+    2. A count-only assertion can be offset by an unrelated
+       only-in-Avalonia divergence for the same person; the caller
+       now uses the returned `orphan_kin_ids` set to verify row
+       identity, not just count.
     """
     import sqlite3
     with sqlite3.connect(sqlite_path) as conn:
-        row = conn.execute(
+        # Find the affected person with the most orphans.
+        head = conn.execute(
             """
             SELECT kd.c_personid, COUNT(*) AS orphan_count
             FROM KIN_DATA kd
             LEFT JOIN BIOG_MAIN bm ON bm.c_personid = kd.c_kin_id
             WHERE bm.c_personid IS NULL
-              AND kd.c_kin_id IS NOT NULL
             GROUP BY kd.c_personid
             ORDER BY COUNT(*) DESC, kd.c_personid ASC
             LIMIT 1
             """
         ).fetchone()
-    if row is None:
-        return None
-    return int(row[0]), int(row[1])
+        if head is None:
+            return None
+        person_id, expected_orphan_count = int(head[0]), int(head[1])
+
+        # Capture the specific c_kin_id values that were orphans for
+        # that person; the caller will check these against the
+        # diff's only-in-Avalonia bucket.
+        kin_ids = conn.execute(
+            """
+            SELECT kd.c_kin_id
+            FROM KIN_DATA kd
+            LEFT JOIN BIOG_MAIN bm ON bm.c_personid = kd.c_kin_id
+            WHERE bm.c_personid IS NULL
+              AND kd.c_personid = ?
+            """,
+            (person_id,),
+        ).fetchall()
+    return person_id, expected_orphan_count, frozenset(r[0] for r in kin_ids)
 
 
 def test_kinships_pair_orphan_kin_documented_divergence(tmp_path: Path) -> None:
@@ -192,8 +214,13 @@ def test_kinships_pair_orphan_kin_documented_divergence(tmp_path: Path) -> None:
     If the current dataset has zero orphan kin (the 2026-04-30
     Datadump's actual state), skip with a precise diagnostic. The
     test arms automatically the moment a future Datadump produces
-    an orphan, which is the executable-evidence outcome WORK_PLAN
-    Phase 7e called for.
+    an orphan, modulo the existing preconditions inherited from
+    the smoke test above: built `cbdb.sqlite` + `cbdb_data.mdb`,
+    matching `build_manifest.json` SHA, and `pyodbc` available.
+    Those gates remain `pytest.skip` causes (not failures), so
+    "auto-arms" here means "fires when the upstream-data
+    precondition becomes satisfiable", not "ignores the rest of
+    the strict-pipeline gates".
 
     Per §0.b: no transcription in the test itself — both arms route
     through their respective upstream code (cbdb_replay.lookatkinship
@@ -232,12 +259,14 @@ def test_kinships_pair_orphan_kin_documented_divergence(tmp_path: Path) -> None:
     if found is None:
         pytest.skip(
             "current Datadump has zero orphan kin (KIN_DATA rows whose "
-            "c_kin_id has no matching BIOG_MAIN row); the INNER vs LEFT "
-            "JOIN gap described in reports/known_issues.md#kinships_basic_person "
-            "cannot fire on this build. The test arms automatically on "
-            "any future dump that has at least one orphan."
+            "c_kin_id has no matching BIOG_MAIN row, including NULL "
+            "c_kin_id rows); the INNER vs LEFT JOIN gap described in "
+            "reports/known_issues.md#kinships_basic_person cannot fire "
+            "on this build. The test arms on any future dump that "
+            "satisfies the smoke-test preconditions above AND has at "
+            "least one orphan kin row."
         )
-    person_id, expected_orphan_count = found
+    person_id, expected_orphan_count, expected_orphan_kin_ids = found
 
     from cbdb_parity.access_kinships import (
         kinships_common_fields,
@@ -261,18 +290,53 @@ def test_kinships_pair_orphan_kin_documented_divergence(tmp_path: Path) -> None:
         compare_fields=kinships_common_fields(),
     )
 
-    # The documented divergence shape: orphan-kin rows appear on
-    # the Avalonia side (LEFT JOIN keeps them) but not on the
-    # Access side (INNER JOIN drops them). They land in the
-    # diff's "only_in_avalonia" bucket. The count must match the
-    # number of orphans we counted directly against BIOG_MAIN.
+    # Codex 7e round flagged that a count-only check (just
+    # `rows_only_in_avalonia == expected_orphan_count`) could
+    # silently pass if the person also has SOME OTHER source of
+    # only-in-Avalonia divergence — the unrelated divergence
+    # would inflate the count while masking the orphan rows
+    # going missing. Verify by identity instead: collect the
+    # `kin_person_id` values of the diff's only-in-Avalonia
+    # bucket and require it to equal the orphan c_kin_id set we
+    # computed at fixture-design time.
+
+    # diff_rows exposes only summary stats; reconstruct the
+    # only-in-Avalonia kin set by re-doing the key projection
+    # locally. Per §0.b this is set difference on already-
+    # produced rows, not a re-implementation of either upstream
+    # query.
+    av_kins = {(r.get("kin_person_id"), r.get("kin_code")) for r in avalonia_rows}
+    ax_kins = {(r.get("kin_person_id"), r.get("kin_code")) for r in access_rows}
+    only_av = av_kins - ax_kins
+    only_av_kin_person_ids = {kin_pid for (kin_pid, _kin_code) in only_av}
+
     assert diff.stats.rows_only_in_avalonia == expected_orphan_count, (
         f"orphan-kin gap shape changed: expected exactly "
         f"{expected_orphan_count} only-in-Avalonia rows (the orphan "
         f"kin BIOG_MAIN doesn't have), got "
         f"{diff.stats.rows_only_in_avalonia}. Either cbdb_replay's "
-        f"INNER JOIN behaviour changed, or our LEFT-JOIN scan and "
-        f"the pair test see different KIN_DATA rows."
+        f"INNER JOIN behaviour changed, our LEFT-JOIN scan and "
+        f"the pair test see different KIN_DATA rows, or the same "
+        f"person has an unrelated divergence inflating the count."
+    )
+    # NULL c_kin_id rows show up here as `None`; the access bridge
+    # never emits them so they are guaranteed to be only-in-Avalonia.
+    # Use a coercion that treats DB-NULL as Python None on both sides
+    # of the comparison.
+    expected_set = {
+        (None if kid is None else int(kid))
+        for kid in expected_orphan_kin_ids
+    }
+    actual_set = {
+        (None if kpid is None else int(kpid))
+        for kpid in only_av_kin_person_ids
+    }
+    assert actual_set == expected_set, (
+        f"only-in-Avalonia rows are not the documented orphan kin: "
+        f"expected kin set {sorted(repr(x) for x in expected_set)}, "
+        f"got {sorted(repr(x) for x in actual_set)}. The gap shape "
+        f"described in known_issues#kinships_basic_person has changed; "
+        f"investigate before refreshing the suppression."
     )
     assert diff.stats.rows_only_in_access == 0, (
         f"unexpected only-in-Access rows: {diff.stats.rows_only_in_access}. "
