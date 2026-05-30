@@ -465,9 +465,10 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
   - **7d (✅ 落地 2026-05-31) — Phase 5c 多 fixture
     参数化**。每个 `test_phase5c_person_mirror_vs_host.py`
     case 原本只用 `person_id=1762`（王安石）；把每个
-    per-person accessor 跨三个 fixture 参数化——王安石（北宋）、
-    李白（唐，32540）、朱熹（南宋，3257）。11 个 accessor
-    × 2 个新 fixture = +22 个 passing case。
+    per-person accessor 跨三个 fixture 参数化、跨两个朝代
+    ——王安石（北宋）、李白（唐，32540）、朱熹（南宋，
+    3257）。11 个 accessor × 2 个新 fixture = +22 个
+    passing case。
 
     *Codex round*：抓到一个真的 false-pass 类——helper 接
     受 `[] == []` 当成 pass，所以任何在 canonical 数据集
@@ -485,11 +486,14 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     issue 记录了 cbdb_replay INNER JOIN 丢 orphan kin、
     Avalonia LEFT JOIN 保留，但 canonical fixture（王安石
     /1762）没 orphan kin，缺口看不到。加了一个运行时
-    detector，扫描当前 build 找 orphan kin（`c_kin_id` 在
-    BIOG_MAIN 找不到对应行）的 person——找到就用那人跑
-    pair 并断言文档化的差异形状；没找到就用精确诊断 skip。
-    2026-04-30 Datadump 没有 orphan，所以测试现在 skip，
-    任何未来 dump 出现 orphan 时自动 arm。
+    detector，扫描当前 build 找 orphan kin——既包括
+    `c_kin_id` 在 BIOG_MAIN 找不到对应行的情况，也包括
+    `NULL c_kin_id` 行（INNER JOIN 两类都丢，LEFT JOIN
+    两类都保留）——找到就用那人跑 pair 并断言文档化的
+    差异形状；没找到就用精确诊断 skip。2026-04-30
+    Datadump 两条路径都是 0 orphan，所以测试在落地版上
+    skip；detector 已经连好，未来 dump 触发任一路径都会
+    arm。
 
     *Codex round*：抓出三个问题——detector 排除了
     `NULL c_kin_id` 行，但那个也触发 gap（INNER JOIN 丢
@@ -563,7 +567,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     - per-frame 错误保持 daemon 存活；daemon 死亡是硬重启
       信号。
 
-    Phase 8a 后续把这个 daemon 接入重流量测试文件（见
+    Phase 8a 随后把这个 daemon 接入了重流量测试文件（见
     Phase 8）；7h 本身只落 daemon + 4 个 smoke 测试，没改
     已有测试。
 

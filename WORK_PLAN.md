@@ -678,12 +678,15 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     kin while Avalonia's LEFT JOIN keeps them, but the canonical
     fixture (Wang Anshi / 1762) has no orphan kin, so the gap
     was invisible. Added a runtime detector that scans the
-    current build for any person with an orphan kin (`c_kin_id`
-    with no BIOG_MAIN match) and either asserts the documented
+    current build for any person with an orphan kin — both
+    `c_kin_id` values that have no BIOG_MAIN match AND
+    `NULL c_kin_id` rows (the INNER JOIN drops both, the
+    LEFT JOIN keeps both) — and either asserts the documented
     divergence shape against that person or skips with a
     precise diagnostic. The 2026-04-30 Datadump has zero
-    orphans so the test skips, but it arms automatically the
-    moment a future dump produces one.
+    orphans on either path, so the test skipped on the
+    landing build; the detector is wired to arm whenever a
+    future dump exercises either path.
 
     *Codex round*: caught three issues — the detector excluded
     `NULL c_kin_id` rows even though those also fire the gap
@@ -766,10 +769,10 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     - Per-frame errors keep the daemon alive; daemon-death is
       a hard restart signal.
 
-    Phase 8a later wires this daemon into the heavy-traffic
-    test files via a session fixture (see Phase 8); 7h itself
-    landed the daemon + 4 smoke tests but didn't yet switch
-    any existing test over.
+    Phase 8a subsequently wired this daemon into the
+    heavy-traffic test files via a session fixture (see
+    Phase 8); 7h itself landed the daemon + 4 smoke tests
+    without switching any existing test over.
 
     *Codex round*: caught three issues — `per_call_timeout_seconds`
     was stored but never enforced, so a stuck dispatch would
