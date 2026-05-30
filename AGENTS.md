@@ -63,7 +63,7 @@ calls **the upstream code itself**, not a Python equivalent of it.
   document the Access-side gap in `reports/known_issues.md`. See
   WORK_PLAN.md Phase 6 for the cleanup plan.
 
-## Phase 7 + Phase 8 operational landings (added 2026-05-31)
+## Phase 7 + Phase 8 operational landings (added 2026-05-30)
 
 Two infrastructure pieces landed in Phase 7 / Phase 8 that new
 contributors should know about up front.
@@ -72,15 +72,20 @@ contributors should know about up front.
 
 `.github/workflows/ci.yml` runs on every `push` and
 `pull_request`. It installs only the `[dev,harness]` extras
-(NOT `[access]` — pyodbc is Windows-only), runs
-`pytest --collect-only` to catch import / syntax regressions
-across the whole test tree, runs the non-DB unit tests
-(summary_report, diff_report, config, datadump, mysqldump,
-access_types, access_schema), and lints `cbdb_parity/` +
-`tests/` with ruff.
+(NOT `[access]` — that extra pulls in `pypyodbc` and
+`pywinauto` which are Windows-only, plus `pyodbc` which is
+cross-platform but binds to the Windows-only Access ODBC /
+ACE driver in this codebase), runs `pytest --collect-only` to
+catch import / syntax regressions across the whole test tree,
+runs the non-DB unit tests (summary_report, diff_report,
+config, datadump, mysqldump, access_types, access_schema),
+and lints `cbdb_parity/` + `tests/` with ruff.
 
 What CI deliberately does NOT do:
-- build the mdb or sqlite (Windows ODBC + Datadump required),
+- build `cbdb_data.mdb` (needs Windows Access ODBC / Jet),
+- build `cbdb.sqlite` (needs Datadump access + the MariaDB
+  cache the Phase 1.6 builder defaults to; both live on the
+  contributor's machine, not on a GHA runner),
 - spin up the ParityHost (needs the AVALONIA_REPO clone),
 - run any test that touches the real databases.
 

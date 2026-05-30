@@ -84,7 +84,7 @@ scripts via Python (Phase 3c/3d/3e + Phase 6a).
 
 ## Repository status
 
-Phases 1–8 landed (2026-05-27 → 2026-05-31). Current suite:
+Phases 1–8 landed (2026-05-27 → 2026-05-30). Current suite:
 **387 passed, 7 skipped, 1 xfailed**. Implementation is tracked
 phase-by-phase in `WORK_PLAN.md` (English) and
 `WORK_PLAN.zh-CN.md` (Chinese, authoritative for project
@@ -118,8 +118,10 @@ have no §0.b-compliant Access oracle.
 Copy-Item .env.sample .env
 # edit .env with the real paths on your machine
 
-# 2. Install (uv-managed venv recommended; pyodbc + pypyodbc are
-#    Windows-only and live in the [access] extra)
+# 2. Install (uv-managed venv recommended; the [access] extra
+#    pulls in pypyodbc + pywinauto + pyodbc; the first two are
+#    Windows-only, the third is cross-platform but binds to the
+#    Windows-only Access ODBC/ACE driver in this codebase)
 uv venv --python 3.12 .venv
 uv pip install --python .venv/Scripts/python.exe -e ".[dev,harness,access]"
 

@@ -588,7 +588,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     green at every commit boundary (suite count drops only between
     6b's commits, not within them).
 
-- **Phase 7 (planned 2026-05-31 onwards)** — in-repo housekeeping
+- **Phase 7 (planned 2026-05-30 onwards)** — in-repo housekeeping
   + CI scaffold + runtime optimisation. Everything that is
   doable WITHOUT modifying `cbdb-desktop-app`, `cbdb-user-mdb-tests`,
   or filing issues against them. Items requiring upstream changes
@@ -603,7 +603,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
   with `git push` after codex sign-off, mirroring the Phase 5/6
   cadence.
 
-  - **7a (✅ landed 2026-05-31) — `coverage/matrix.md` Tier 3/4
+  - **7a (✅ landed 2026-05-30) — `coverage/matrix.md` Tier 3/4
     explicit out-of-scope marking**. Tier 3 (Access-only export
     workflows: GIS, Neo4j, UCINet, Pajek, Gephi) and Tier 4
     (per-form bulk-IO helpers) were listed in the matrix for
@@ -614,7 +614,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
 
     *Codex round*: clean.
 
-  - **7b (✅ landed 2026-05-31) — `WORK_PLAN.md §9 Open questions`
+  - **7b (✅ landed 2026-05-30) — `WORK_PLAN.md §9 Open questions`
     Post-Phase-6 close-out**. §9 had stopped at planning-era
     decisions; added a "Post-Phase-6 status (2026-05-30)"
     subsection enumerating (a) what is suppressed in
@@ -631,7 +631,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     condition was too weak ("at least one") and was re-phrased
     so the umbrella stays open until all four services land.
 
-  - **7c (✅ landed 2026-05-31) — `reports/SUMMARY.md`
+  - **7c (✅ landed 2026-05-30) — `reports/SUMMARY.md`
     auto-generation hook**. Added a `cbdb-parity-summary` CLI
     entrypoint wrapping the existing
     `cbdb_parity.summary_report.write_summary` so the
@@ -650,7 +650,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     code 2 with a controlled diagnostic, plus a 4th test
     pinning the behaviour).
 
-  - **7d (✅ landed 2026-05-31) — Phase 5c multi-fixture
+  - **7d (✅ landed 2026-05-30) — Phase 5c multi-fixture
     parameterisation**. Each
     `test_phase5c_person_mirror_vs_host.py` case had used only
     `person_id=1762` (Wang Anshi); parameterised every
@@ -672,7 +672,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     the `label` parameter through `_run_person_pair` so
     assertion messages identify the failing fixture by name.
 
-  - **7e (✅ landed 2026-05-31) — Phase 4 kinships pair
+  - **7e (✅ landed 2026-05-30) — Phase 4 kinships pair
     orphan-kin proof case**. The `kinships_basic_person` known
     issue documents that cbdb_replay's INNER JOIN drops orphan
     kin while Avalonia's LEFT JOIN keeps them, but the canonical
@@ -699,7 +699,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     without naming the smoke-test preconditions (built
     mdb/sqlite, matching manifest SHA, pyodbc installed).
 
-  - **7f (✅ landed 2026-05-31) — Phase 4 replay_scan kinship
+  - **7f (✅ landed 2026-05-30) — Phase 4 replay_scan kinship
     extension**. After 6a kinships became §0.b-compliant via
     `cbdb_replay.lookatkinship`; extended
     `test_phase4_replay_scan.py` to also drive that for three
@@ -717,7 +717,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     pass class 7d fixed for Phase 5c (fixed with non-empty
     asserts on both Avalonia and access rows before diffing).
 
-  - **7g (✅ landed 2026-05-31) — GitHub Actions CI workflow**.
+  - **7g (✅ landed 2026-05-30) — GitHub Actions CI workflow**.
     `.github/` didn't exist. Added a workflow that on `push`
     and `pull_request` (1) installs the dev + harness extras
     (NOT access — pyodbc is Windows-only), (2) runs
@@ -745,7 +745,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     `test_parity_host_vs_mirror.py`); anywhere else, ruff
     resumes catching accidental homoglyphs.
 
-  - **7h (✅ landed 2026-05-31) — ParityHost NDJSON daemon
+  - **7h (✅ landed 2026-05-30) — ParityHost NDJSON daemon
     mode**. Every host call had previously paid ~1s of
     `dotnet run --no-build` cold-start. NDJSON daemon mode
     keeps one host process alive and streams
@@ -814,14 +814,14 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     is independent of everything else; 7h is the last and
     largest.
 
-- **Phase 8 (planned 2026-05-31 onwards)** — Phase 7 wrap-up:
+- **Phase 8 (planned 2026-05-30 onwards)** — Phase 7 wrap-up:
   realise the deferred 7h runtime payoff, sweep stale prose
   and comments, and bring all documentation indices into a
   consistent post-Phase-7 state. After Phase 8 the repo is in
   a true steady-state pending upstream action on every
   documented `known_issues.md` suppression.
 
-  Discovered during the post-Phase-7 audit (2026-05-31). None
+  Discovered during the post-Phase-7 audit (2026-05-30). None
   of the items below require modifying `cbdb-desktop-app` or
   `cbdb-user-mdb-tests`; none requires filing GitHub issues
   against any repo. Per §0.a + the 2026-05-30 user directive
@@ -933,7 +933,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     plans don't reflect.
 
     Actions:
-    - Add `(✅ landed 2026-05-31)` markers to each Phase 7
+    - Add `(✅ landed 2026-05-30)` markers to each Phase 7
       sub-phase heading in `WORK_PLAN.md` (7a → 7h).
     - Append the actual codex-round deltas to each
       sub-phase's section (e.g. 7c added 4 CLI tests not 0;
@@ -942,13 +942,13 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
       typing tightening; 7g's per-file RUF002/RUF003 scoping;
       7h's timeout enforcement + stderr drainer + safer exit).
     - Extend the §9 "Post-Phase-6 status (2026-05-30)" block
-      with a "Post-Phase-7 status (2026-05-31)" subsection
+      with a "Post-Phase-7 status (2026-05-30)" subsection
       anchoring the new suite-count contract: 388 passed,
       7 skipped, 1 xfailed at Phase 7 close (commit `46e8186`).
     - Refresh `README.md` "Repository status" — "Phases 1–6
       landed (2026-05-27 → 2026-05-30). Current suite: 354
       passed, 6 skipped, 1 xfailed." becomes "Phases 1–7
-      landed (2026-05-27 → 2026-05-31). Current suite: 388
+      landed (2026-05-27 → 2026-05-30). Current suite: 388
       passed, 7 skipped, 1 xfailed." Mention `ParityHostDaemon`
       availability in the architecture diagram explanation.
     - Mirror all of the above into `WORK_PLAN.zh-CN.md`
@@ -987,7 +987,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     matching the 7a/7b/7c precedent. Each step ends with
     codex sign-off + `git push`.
 
-- **Phase 9 (planned 2026-05-31)** — Phase 8 cosmetic
+- **Phase 9 (planned 2026-05-30)** — Phase 8 cosmetic
   follow-up. Two purely documentary sub-phases that the
   Phase 8 close-out scan surfaced but were small enough to
   defer to a separate pass.
@@ -998,7 +998,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
 
   - **9a — Phase 7 sub-phase prose past-tense + codex
     annotations** (en + zh-CN). The 8d markers gave each
-    Phase 7 sub-phase a `(✅ landed 2026-05-31)` tag but
+    Phase 7 sub-phase a `(✅ landed 2026-05-30)` tag but
     left the paragraph bodies in planning-era future tense
     ("Add a CI workflow that on push/PR...", "the CLI will
     rewrite..."). Convert each sub-phase paragraph to
@@ -1067,7 +1067,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
 
 ### Post-Phase-6 status (2026-05-30)
 
-Phase 7b close-out, added 2026-05-31. Snapshot of the suite and
+Phase 7b close-out, added 2026-05-30. Snapshot of the suite and
 suppressions at the moment Phase 6 closed and Phase 7 was
 opened.
 
@@ -1135,7 +1135,7 @@ in execution it surfaced a small post-completion audit that
 shipped as Phase 8 — see the Post-Phase-7 status block below
 for the final close-out.
 
-### Post-Phase-7 status (2026-05-31)
+### Post-Phase-7 status (2026-05-30)
 
 Phase 8d close-out. Phase 7 landed in eight commits (each with
 a codex round + push), and the post-Phase-7 audit surfaced

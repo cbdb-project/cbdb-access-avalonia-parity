@@ -410,7 +410,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
   测试断言的是"我自己手写的 SQL == upstream 的 SQL"，新
   规则把这归类为伪 oracle。
 
-- **阶段 7（2026-05-31 起规划）** —— 本 repo 内的整理 +
+- **阶段 7（2026-05-30 起规划）** —— 本 repo 内的整理 +
   CI 骨架 + 运行时优化。所有在**不修改**
   `cbdb-desktop-app`、`cbdb-user-mdb-tests` 且**不向它们提
   issue**的前提下还能做的事。需要上游改动的事项（Texts /
@@ -424,7 +424,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
   Phase 7 拆成八个独立子阶段，每个以 codex sign-off + `git
   push` 收尾，节奏同 Phase 5/6。
 
-  - **7a (✅ 落地 2026-05-31) — `coverage/matrix.md` Tier 3/4
+  - **7a (✅ 落地 2026-05-30) — `coverage/matrix.md` Tier 3/4
     显式标记 out-of-scope**。Tier 3（仅 Access 的导出工作流：
     GIS、Neo4j、UCINet、Pajek、Gephi）和 Tier 4（每个 form
     的 bulk-IO helper）原本为完整性列在矩阵里，但它们产出
@@ -433,7 +433,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
 
     *Codex round*：干净。
 
-  - **7b (✅ 落地 2026-05-31) — `WORK_PLAN.md §9 未决问题`
+  - **7b (✅ 落地 2026-05-30) — `WORK_PLAN.md §9 未决问题`
     Post-Phase-6 收尾段**。§9 原本停在规划阶段决策；加了
     "Post-Phase-6 status (2026-05-30)" 子节，列举 (a)
     `known_issues.md` 里抑制了什么、为什么，(b) 每个抑制
@@ -448,7 +448,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     条件太弱（"at least one"），改成 umbrella 一直挂到四个
     service 都到位。
 
-  - **7c (✅ 落地 2026-05-31) — `reports/SUMMARY.md`
+  - **7c (✅ 落地 2026-05-30) — `reports/SUMMARY.md`
     自动生成 hook**。加了 `cbdb-parity-summary` CLI 入口，
     包装已有的 `cbdb_parity.summary_report.write_summary`，
     让 `reports/SUMMARY.md` dashboard 可以按需重生。退出码：
@@ -462,7 +462,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     如果是文件后面会在 `iterdir()` 崩溃（加了 `is_dir()`
     检查返回 exit 2 + 受控诊断，并加第 4 个测试钉住）。
 
-  - **7d (✅ 落地 2026-05-31) — Phase 5c 多 fixture
+  - **7d (✅ 落地 2026-05-30) — Phase 5c 多 fixture
     参数化**。每个 `test_phase5c_person_mirror_vs_host.py`
     case 原本只用 `person_id=1762`（王安石）；把每个
     per-person accessor 跨三个 fixture 参数化、跨两个朝代
@@ -481,7 +481,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     并把 `label` 参数透过 `_run_person_pair` 串进去，让 assert
     消息按 fixture 名字定位失败。
 
-  - **7e (✅ 落地 2026-05-31) — Phase 4 kinships pair
+  - **7e (✅ 落地 2026-05-30) — Phase 4 kinships pair
     orphan-kin 证明 case**。`kinships_basic_person` known
     issue 记录了 cbdb_replay INNER JOIN 丢 orphan kin、
     Avalonia LEFT JOIN 保留，但 canonical fixture（王安石
@@ -505,7 +505,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     smoke-test 的前置条件（mdb/sqlite 已构建、manifest SHA
     匹配、pyodbc 已装）。
 
-  - **7f (✅ 落地 2026-05-31) — Phase 4 replay_scan
+  - **7f (✅ 落地 2026-05-30) — Phase 4 replay_scan
     kinship 扩展**。6a 之后 kinships 已经 §0.b 兼容；扩展
     `test_phase4_replay_scan.py` 让它也跑跨朝代 seed person
     的 `cbdb_replay.lookatkinship` ——三个：李白（唐）、
@@ -521,7 +521,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     trivial pass 漏洞（加了对 Avalonia 和 access 两侧 row
     数都 ≥1 的断言再做 diff）。
 
-  - **7g (✅ 落地 2026-05-31) — GitHub Actions CI
+  - **7g (✅ 落地 2026-05-30) — GitHub Actions CI
     workflow**。`.github/` 原本不存在。加了一个 workflow，
     在 `push` 和 `pull_request` 时 (1) 装 dev + harness
     extras（**不**装 access —— pyodbc 只在 Windows 上），
@@ -545,7 +545,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     `test_parity_host_vs_mirror.py`）；其他位置 ruff 继续
     抓 homoglyph。
 
-  - **7h (✅ 落地 2026-05-31) — ParityHost NDJSON daemon
+  - **7h (✅ 落地 2026-05-30) — ParityHost NDJSON daemon
     模式**。每个 host call 原本付 ~1s 的 `dotnet run
     --no-build` 冷启动。NDJSON daemon 模式让一个 host
     进程保持存活，stdin 流式接收每行一帧的
@@ -604,13 +604,13 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     纯文档改动，方便的话可以打包。7d → 7e → 7f 都改测试且
     全程保持绿。7g 与其他独立；7h 最后且最大。
 
-- **阶段 8（2026-05-31 起规划）** —— Phase 7 收尾：兑现
+- **阶段 8（2026-05-30 起规划）** —— Phase 7 收尾：兑现
   7h 推迟的运行时收益、扫除过时的注释与文案、把所有
   文档索引拉到一致的 Phase 7 之后状态。Phase 8 收完之后，
   repo 才算真正进入稳态——剩余只是等上游对 `known_issues.md`
   里每条 suppression 的对应动作。
 
-  Phase 7 收尾审计（2026-05-31）发现的项目。所有项目都**不
+  Phase 7 收尾审计（2026-05-30）发现的项目。所有项目都**不
   需要**改动 `cbdb-desktop-app` 或 `cbdb-user-mdb-tests`，
   也**不需要**给任何 repo 提 issue。按 §0.a + 2026-05-30
   用户指示，这些都明确不在范围内。
@@ -704,7 +704,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
 
     动作：
     - 给 `WORK_PLAN.md` 里每个 Phase 7 子阶段标题加
-      `(✅ landed 2026-05-31)`（7a → 7h）。
+      `(✅ landed 2026-05-30)`（7a → 7h）。
     - 把每个子阶段的真实 codex round delta 追加进去
       （如 7c 加了 4 个 CLI 测试不是 0、7d 的 empty-row
       guard 抓到的 false-pass 类、7e 的 NULL c_kin_id
@@ -712,14 +712,14 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
       per-file RUF002/RUF003 scope、7h 的 timeout 强制 +
       stderr drainer + 安全 exit）。
     - 扩展 §9 的 "Post-Phase-6 status (2026-05-30)" 段，
-      加一个 "Post-Phase-7 status (2026-05-31)" 子节，把
+      加一个 "Post-Phase-7 status (2026-05-30)" 子节，把
       新的 suite-count 契约锚定到 Phase 7 close
       （388 passed / 7 skipped / 1 xfailed，commit
       `46e8186`）。
     - 刷新 `README.md` 的 "Repository status" 段：
       "Phases 1–6 landed (2026-05-27 → 2026-05-30).
       Current suite: 354 passed, 6 skipped, 1 xfailed."
-      改为 "Phases 1–7 landed (2026-05-27 → 2026-05-31).
+      改为 "Phases 1–7 landed (2026-05-27 → 2026-05-30).
       Current suite: 388 passed, 7 skipped, 1 xfailed."
       架构图说明里加一句 `ParityHostDaemon` 已可用。
     - 把上面所有内容原样镜像到 `WORK_PLAN.zh-CN.md`——
@@ -750,7 +750,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     一个 commit，参考 7a/7b/7c 先例。每步 codex sign-off
     + `git push` 收尾。
 
-- **阶段 9（2026-05-31 规划）** —— Phase 8 cosmetic follow-up。
+- **阶段 9（2026-05-30 规划）** —— Phase 8 cosmetic follow-up。
   两个纯文档子阶段——Phase 8 收尾扫描时发现了，但小到可以
   单独走一遍。
 
@@ -759,7 +759,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
 
   - **9a — Phase 7 sub-phase prose 改成 past-tense + codex
     annotations**（en + zh-CN）。8d 给每个 Phase 7 sub-phase
-    加了 `(✅ 落地 2026-05-31)` 标签，但段落本体还是规划态
+    加了 `(✅ 落地 2026-05-30)` 标签，但段落本体还是规划态
     的未来时（"加一个 CI workflow，在 push/PR 时..."、
     "CLI 会重写..."）。把每段改成回顾式过去时，并在每段后
     附上该 sub-phase 的实际 codex round delta：
@@ -818,7 +818,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
 - ✅ **空 mdb 起步（1.3b）**：用 `pypyodbc.win_create_mdb()` —— 实测一行调用生成 172 KB 空 mdb。**不用** `pyodbc`（不存在文件直接报错）、**不用** ADOX/`win32com`（重）、**不用**在 repo 里 commit 模板（不可复现）。`pypyodbc` 加进 `[access]` extra 依赖，只用这一个函数；其他所有 mdb 操作继续走 `pyodbc`。
 - ✅ **MariaDB 中间缓存（Phase 1.6）**：Phase 1.3b 在真实 Datadump 上撞到 Jet 的两个硬伤（2 GB 事务 buffer 上限、PK-on-duplicates `IntegrityError 23000`）后，确定把 MariaDB 中间层作为 sqlite_builder + mdb_builder 的**默认** import source。该缓存层**不**违反 §1 严格流水线规则禁止使用本机已有 user mdb 的条款 —— 它由我们自己从 Datadump 灌出来，靠 in-DB SHA provenance 行做缓存校验。Phase 1.6 之前的 `cbdb_parity.mysqldump` 直链路径保留为非 Docker 主机的 fallback (`source='datadump'`)。**本条决策与前文 "连续三轮 codex → Docker MySQL 兜底" 的触发条件是互补的**，不是替代 —— 那一条仍然约束 **SQLite builder 内部** Python 端口 vs Docker MySQL 的选择。
 
-### Post-Phase-7 status (2026-05-31)
+### Post-Phase-7 status (2026-05-30)
 
 Phase 8d 收尾。Phase 7 在八个 commit 内落地（每个 + codex
 round + push），Phase 7 收尾审计又带出 Phase 8 的八个项目
