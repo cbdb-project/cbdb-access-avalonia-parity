@@ -97,7 +97,21 @@ select = [
 ]
 ignore = [
     "E501",     # line-too-long — soft-enforced; ruff format handles wrapping
-    "RUF002",   # ambiguous Unicode chars in docstrings (× / − are intentional
-                # in technical text: SELECT × LIMIT, mirror_keys − host_keys, …)
-    "RUF003",   # same, in comments
+]
+
+# Codex 7g round flagged that a global RUF002/RUF003 ignore was
+# broader than the actual need — it would silently accept future
+# accidental ambiguous-Unicode anywhere in repo prose. Scope the
+# suppressions to the specific files where × / − are intentional
+# technical notation. New files will get ruff's normal protection.
+[tool.ruff.lint.per-file-ignores]
+"cbdb_parity/access_status_query.py" = [
+    "RUF003",  # `STATUS_DATA × LIMIT` — Unicode multiplication is intentional
+]
+"cbdb_parity/avalonia_postings.py" = [
+    "RUF002",  # `(posting × office × address)` in docstring — same rationale
+]
+"tests/test_parity_host_vs_mirror.py" = [
+    "RUF002",  # same set-minus, in docstring
+    "RUF003",  # `mirror_keys − host_keys` — Unicode set-minus is intentional
 ]
