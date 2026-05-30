@@ -424,93 +424,160 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
   Phase 7 拆成八个独立子阶段，每个以 codex sign-off + `git
   push` 收尾，节奏同 Phase 5/6。
 
-  - **7a (✅ 落地 2026-05-31) — `coverage/matrix.md` Tier 3/4 显式标记
-    out-of-scope**：Tier 3（仅 Access 的导出工作流：GIS、
-    Neo4j、UCINet、Pajek、Gephi）和 Tier 4（每个 form 的
-    bulk-IO helper）当前为完整性列在矩阵里，但它们产出文件
-    而不是可 diff 的行数据。矩阵当前没有明说这一点。给每
-    个 tier 头加一段说明：明确标记**不在本 repo parity 范围
-    内**。纯文档。Codex review。
+  - **7a (✅ 落地 2026-05-31) — `coverage/matrix.md` Tier 3/4
+    显式标记 out-of-scope**。Tier 3（仅 Access 的导出工作流：
+    GIS、Neo4j、UCINet、Pajek、Gephi）和 Tier 4（每个 form
+    的 bulk-IO helper）原本为完整性列在矩阵里，但它们产出
+    文件而不是可 diff 的行数据。在每个 tier 头加了一段说明，
+    按 §0.a 明确标记**不在本 repo parity 范围内**。纯文档。
 
-  - **7b (✅ 落地 2026-05-31) — `WORK_PLAN.md §9 未决问题` Phase 6 收尾段**：§9
-    当前停在规划阶段的决策。加一个 "Post-Phase-6 status
-    (2026-05-30)" 子节列举：(a) `known_issues.md` 里抑制了
-    什么，为什么，(b) 每个抑制条件重新打开需要什么，(c)
-    suite 计数契约（354/6/1）。纯文档。Codex review。
+    *Codex round*：干净。
 
-  - **7c (✅ 落地 2026-05-31) — `reports/SUMMARY.md` 自动生成 hook**：
-    `cbdb_parity.summary_report.write_summary` 已经存在，
-    带单元测试，但 `reports/SUMMARY.md` 文件当前没生成。
-    要么 (a) 接一个 pytest session-finish hook，全套跑完
-    后 run `write_summary`；要么 (b) 加一个
-    `cbdb-parity-summary` CLI 入口并文档化 pre-commit hook
-    去调它。推荐 (b)，让 dashboard 刷新动作显式且可版本
-    控制。Codex review。
+  - **7b (✅ 落地 2026-05-31) — `WORK_PLAN.md §9 未决问题`
+    Post-Phase-6 收尾段**。§9 原本停在规划阶段决策；加了
+    "Post-Phase-6 status (2026-05-30)" 子节，列举 (a)
+    `known_issues.md` 里抑制了什么、为什么，(b) 每个抑制
+    重新打开需要什么，(c) suite 计数契约（354/6/1）。
+    纯文档。
 
-  - **7d (✅ 落地 2026-05-31) — Phase 5c 多 fixture 参数化**：每个
-    `test_phase5c_person_mirror_vs_host.py` case 当前都用
-    `person_id=1762`（王安石）。加 2–3 个跨朝代 / 数据
-    密度的 fixture（例如孔丘=1 代表非常老 / 数据稀疏、
-    中唐人物一个、明清人物一个）参数化。每个参数化 case
-    给套件加一行。catches 单 fixture 跑漏的边缘 case
-    （NULL 处理、字符集边缘、空列表返回）。Codex review。
+    *Codex round*：抓出三个问题——354/6/1 契约最初锚在
+    "HEAD" 但 7c 马上要加 4 个 passing 测试，所以锚要改成
+    Phase 6 close 的 commit (`dddedc1`)；"Active
+    suppressions" 表里混进了一条历史 breadcrumb 行（不是真
+    的 active）；`avalonia_gap (legacy)` umbrella 的 re-arm
+    条件太弱（"at least one"），改成 umbrella 一直挂到四个
+    service 都到位。
 
-  - **7e (✅ 落地 2026-05-31) — Phase 4 kinships pair 多 fixture 加 orphan-kin
-    证明 case**：`kinships_basic_person` known issue 记录
-    了 cbdb_replay 的 INNER JOIN 丢 orphan kin、Avalonia 的
-    LEFT JOIN 保留——但当前 pair test 用的苏轼（1762）没
-    orphan kin 所以差异看不出来。找一个至少有一个 orphan
-    kin（`c_kin_id` 不在 BIOG_MAIN 中）的 fixture，加一个
-    参数化 case 显式**预期**这条 known-issue 差异——把
-    `assert diff.matches` 换成
-    `assert <documented orphan count>`，让缺口有可执行
-    证据而不只是文字说明。Codex review。
+  - **7c (✅ 落地 2026-05-31) — `reports/SUMMARY.md`
+    自动生成 hook**。加了 `cbdb-parity-summary` CLI 入口，
+    包装已有的 `cbdb_parity.summary_report.write_summary`，
+    让 `reports/SUMMARY.md` dashboard 可以按需重生。退出码：
+    0 正常、2 reports 树不存在。加了 3 个 CLI 测试覆盖 happy
+    path、missing-dir、默认 cwd 解析。
 
-  - **7f (✅ 落地 2026-05-31) — Phase 4 replay_scan kinship 扩展**：
-    `test_phase4_replay_scan.py` 当前扫 entry / office /
-    status。6a 之后 kinships 已经 §0.b 兼容；把扫描扩展
-    到也跑跨朝代 seed person 的
-    `cbdb_replay.lookatkinship`。Codex review。
+    *Codex round*：抓出两个问题——rewrite happy-path 测试
+    没有预设 sentinel `SUMMARY.md`，所以一个静默追加或拒绝
+    的 CLI 会 false-pass（改成写一个 sentinel 后断言它消
+    失）；`--reports-dir` 接受任何 `exists()` 的路径，
+    如果是文件后面会在 `iterdir()` 崩溃（加了 `is_dir()`
+    检查返回 exit 2 + 受控诊断，并加第 4 个测试钉住）。
 
-  - **7g (✅ 落地 2026-05-31) — GitHub Actions CI workflow**：`.github/` 不存在。
-    加一个 CI workflow，在 `push` 和 `pull_request` 时：
-    (1) 装 dev + harness extras（**不**装 access —— pyodbc
-    只在 Windows 上），(2) 跑 `pytest --collect-only` 抓
-    import / syntax regressions，(3) 跑非 DB 单元测试
-    （`tests/test_summary_report.py`、`tests/test_diff_report.py`
-    等），(4) lint `cbdb_parity/` 和 `parity_host/`。**不**
-    尝试 build mdb 或 sqlite（要 Windows ODBC + Datadump），
-    **不**尝试 spin up ParityHost（要 AVALONIA_REPO clone）。
-    需要真实 DB 的测试跑留在本地。Codex review。
+  - **7d (✅ 落地 2026-05-31) — Phase 5c 多 fixture
+    参数化**。每个 `test_phase5c_person_mirror_vs_host.py`
+    case 原本只用 `person_id=1762`（王安石）；把每个
+    per-person accessor 跨三个 fixture 参数化——王安石（北宋）、
+    李白（唐，32540）、朱熹（南宋，3257）。11 个 accessor
+    × 2 个新 fixture = +22 个 passing case。
 
-  - **7h (✅ 落地 2026-05-31) — ParityHost NDJSON daemon 模式**：当前每个 host
-    调用都跑 `dotnet run --no-build --project … -- <service>
-    <sqlite-path>`。冷启动约 1s。套件里 ~60 个 host 调用，
-    一次完整 pytest 跑会有 ~60s 的 subprocess setup 开销。
-    NDJSON daemon 模式让一个 host 进程保持存活，stdin 流
-    式接收每行一帧的 `{service, sqlite_path, request}`
-    JSON 帧，stdout 流式回 `{response}` 或
-    `{error, stack}` 帧（每行一帧）。one-shot 模式作为调试
-    路径保留。
+    *Codex round*：抓到一个真的 false-pass 类——helper 接
+    受 `[] == []` 当成 pass，所以任何在 canonical 数据集
+    上零行的 (accessor, person_id) 组合都默默通过，根本没
+    跑上游 SQL。直接 `COUNT(*)` 探测 `cbdb.sqlite` 显示
+    possessions 和 institutions 对三个 fixture 都是 0，
+    events 对两个 fixture 是 0。修复：加 `_EXPECTED_EMPTY`
+    显式 allow-list + 双向 gate：不在 allow-list 且 host 返
+    回 0 → FAIL；在 allow-list 但 host 返回 ≥1 → FAIL。
+    并把 `label` 参数透过 `_run_person_pair` 串进去，让 assert
+    消息按 fixture 名字定位失败。
 
-    具体改动：
+  - **7e (✅ 落地 2026-05-31) — Phase 4 kinships pair
+    orphan-kin 证明 case**。`kinships_basic_person` known
+    issue 记录了 cbdb_replay INNER JOIN 丢 orphan kin、
+    Avalonia LEFT JOIN 保留，但 canonical fixture（王安石
+    /1762）没 orphan kin，缺口看不到。加了一个运行时
+    detector，扫描当前 build 找 orphan kin（`c_kin_id` 在
+    BIOG_MAIN 找不到对应行）的 person——找到就用那人跑
+    pair 并断言文档化的差异形状；没找到就用精确诊断 skip。
+    2026-04-30 Datadump 没有 orphan，所以测试现在 skip，
+    任何未来 dump 出现 orphan 时自动 arm。
+
+    *Codex round*：抓出三个问题——detector 排除了
+    `NULL c_kin_id` 行，但那个也触发 gap（INNER JOIN 丢
+    NULL）；count-only 断言
+    （`rows_only_in_avalonia == expected_orphan_count`）
+    可能 false-pass，如果同一个人还有不相关的 only-in-Avalonia
+    差异（改成按 spliced `kin_person_id` 集合做 row-identity
+    检查）；skip 消息说 "any future dump arms it" 但没说
+    smoke-test 的前置条件（mdb/sqlite 已构建、manifest SHA
+    匹配、pyodbc 已装）。
+
+  - **7f (✅ 落地 2026-05-31) — Phase 4 replay_scan
+    kinship 扩展**。6a 之后 kinships 已经 §0.b 兼容；扩展
+    `test_phase4_replay_scan.py` 让它也跑跨朝代 seed person
+    的 `cbdb_replay.lookatkinship` ——三个：李白（唐）、
+    范仲淹（北宋）、朱熹（南宋）。每个都在 fixture-design
+    时验证非空。
+
+    *Codex round*：抓出两个问题——case payload 验证只
+    检查 dict-with-key 不检查 value 类型，所以
+    `{"person_id": "32540"}` 或 `{"person_id": True}` 这种
+    损坏 payload 会越过契约边界（改成加 non-bool-int 验证；
+    `bool` 是 `int` 的 subclass 在 Python 里所以要显式拒
+    绝）；kinship dispatch 分支有跟 7d 同一类的 empty-row
+    trivial pass 漏洞（加了对 Avalonia 和 access 两侧 row
+    数都 ≥1 的断言再做 diff）。
+
+  - **7g (✅ 落地 2026-05-31) — GitHub Actions CI
+    workflow**。`.github/` 原本不存在。加了一个 workflow，
+    在 `push` 和 `pull_request` 时 (1) 装 dev + harness
+    extras（**不**装 access —— pyodbc 只在 Windows 上），
+    (2) 跑 `pytest --collect-only` 抓 import / syntax
+    regression，(3) 跑非 DB 单元测试，(4) lint `cbdb_parity/`
+    和 `tests/`（ruff）。**不**尝试 build mdb 或 sqlite，
+    **不**尝试 spin up ParityHost；那些测试跑留在本地。
+
+    顺便把 repo 已有的 ruff 状态清干净让 lint job 能过：
+    auto-fix 了 29 个问题（主要是 I001 import 顺序 + 没用
+    的 import）跨 21 个文件，并修了一个真的 B904 在
+    `cbdb_parity.parity_host`（一个 `except` 块 re-raise
+    `ParityHostError` 没用 `from exc`，丢了下层 JSON-decode
+    失败的上下文）。
+
+    *Codex round*：发现初版 `RUF002/RUF003` global ignore
+    比实际需要宽——会默默接受未来 prose 里出现的偶发
+    ambiguous-Unicode。改成 `[tool.ruff.lint.per-file-ignores]`
+    只 scope 到三个文件，那里的 `×` / `−` 是有意的技术符号
+    （`access_status_query.py`、`avalonia_postings.py`、
+    `test_parity_host_vs_mirror.py`）；其他位置 ruff 继续
+    抓 homoglyph。
+
+  - **7h (✅ 落地 2026-05-31) — ParityHost NDJSON daemon
+    模式**。每个 host call 原本付 ~1s 的 `dotnet run
+    --no-build` 冷启动。NDJSON daemon 模式让一个 host
+    进程保持存活，stdin 流式接收每行一帧的
+    `{service, sqlite_path, request}` JSON 帧，stdout 流式
+    回每行一帧的 `{ok: …}` 或 `{error, stack}`。one-shot
+    模式作为调试路径保留。
+
+    实现：
     - C# 侧：新 `--daemon` flag 让 `Program.Main` 进入
       `while ((line = await Console.In.ReadLineAsync()) != null)`
-      循环；每次迭代 deserialise 一个 `RequestFrame`，跑
-      已有 dispatch，写一行 `ResponseFrame`。
-    - Python 侧：`cbdb_parity.parity_host` 新增
-      `ParityHostDaemon` context manager，启动一次
-      subprocess，每个调用收发一帧，`__exit__` 清理。
-      已有的 one-shot `invoke_parity_host` 保留公开签名；
-      新加一个 `daemon=` kwarg 或 session 级 pytest
-      fixture 复用共享 daemon。
-    - 失败语义：mid-frame daemon 崩了走
-      `ParityHostError("daemon died after N frames")`，带
-      stderr；下个 call 重新起 subprocess。
+      循环。per-frame 失败不杀 daemon；EOF on stdin 退出 0。
+      每次写完 response 行后必须 `FlushAsync()`——Windows 上
+      stdout 缓冲否则不会 drain 直到进程退出。
+    - Python 侧：`cbdb_parity.parity_host.ParityHostDaemon`
+      context manager 起 daemon，per-frame `{"error"}`
+      payload 上升为 `ParityHostError`，EOF 时 raise
+      `ParityHostError("daemon died after N frames")` 带
+      stderr。
+    - per-frame 错误保持 daemon 存活；daemon 死亡是硬重启
+      信号。
 
-    预期收益：用 host 的完整 pytest 跑从 ~4 分钟降到
-    ~30 秒。Phase 7 最大单项。C# 主循环改动与 Python
-    wrapper 都要 codex review。
+    Phase 8a 后续把这个 daemon 接入重流量测试文件（见
+    Phase 8）；7h 本身只落 daemon + 4 个 smoke 测试，没改
+    已有测试。
+
+    *Codex round*：抓出三个问题——`per_call_timeout_seconds`
+    存了但没强制，卡住的 dispatch 会让 pytest 永远挂
+    （加了 helper 线程跑 `proc.stdout.readline()`，主线程
+    按 timeout join）；正常运行期间没有东西 drain stderr，
+    一个写 ~64 KB 到 stderr 的 child 会在 flush NDJSON
+    response 前死锁（加了后台线程从 `__enter__` 到
+    `__exit__` 把 stderr drain 到有界 `deque`）；
+    `__exit__` 的 timeout-then-kill 路径把 stdout/stderr
+    buffer 扔掉，丢了唯一有用的崩溃上下文（重排成 close-stdin
+    → wait → 必要时 kill → 信号通知 stderr drain 线程退出
+    并 join，保住捕获的行）。
 
   - **预期 suite delta**（纯加，不会有 §0.b regression）：
     7d 加 ~6–10 个参数化 case，7e 加 1 个，7f 加 3–5 个

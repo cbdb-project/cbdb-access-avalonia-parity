@@ -603,103 +603,188 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
   with `git push` after codex sign-off, mirroring the Phase 5/6
   cadence.
 
-  - **7a (✅ landed 2026-05-31) — `coverage/matrix.md` Tier 3/4 explicit out-of-scope
-    marking**: Tier 3 (Access-only export workflows: GIS, Neo4j,
-    UCINet, Pajek, Gephi) and Tier 4 (per-form bulk-IO helpers)
-    are listed for completeness but produce file artefacts rather
-    than diffable result rows. The matrix doesn't currently say
-    that explicitly. Add a one-paragraph header to each tier
-    making clear they are deliberately out of this repo's parity
-    scope. Pure-documentation. Codex review.
+  - **7a (✅ landed 2026-05-31) — `coverage/matrix.md` Tier 3/4
+    explicit out-of-scope marking**. Tier 3 (Access-only export
+    workflows: GIS, Neo4j, UCINet, Pajek, Gephi) and Tier 4
+    (per-form bulk-IO helpers) were listed in the matrix for
+    completeness but produce file artefacts rather than
+    diffable result rows. Added a one-paragraph header to each
+    tier making clear they are deliberately out of this repo's
+    parity scope per §0.a. Pure-documentation.
 
-  - **7b (✅ landed 2026-05-31) — `WORK_PLAN.md §9 Open questions` post-Phase-6
-    close-out**: §9 currently ends at planning-era decisions.
-    Add a "Post-Phase-6 status (2026-05-30)" subsection
-    enumerating: (a) what is suppressed in `known_issues.md` and
-    why, (b) what would re-arm each suppression, (c) the
-    suite-count contract (354/6/1). Pure-documentation. Codex
-    review.
+    *Codex round*: clean.
 
-  - **7c (✅ landed 2026-05-31) — `reports/SUMMARY.md` auto-generation hook**:
-    `cbdb_parity.summary_report.write_summary` exists, with
-    unit tests, but `reports/SUMMARY.md` itself is not currently
-    generated. Either (a) wire a `pytest` session-finish hook
-    that runs `write_summary` after every full run, or (b) add a
-    `cbdb-parity-summary` CLI entrypoint and document a
-    pre-commit hook calling it. Recommendation: (b), so the
-    dashboard refresh is explicit and version-controllable.
-    Codex review.
+  - **7b (✅ landed 2026-05-31) — `WORK_PLAN.md §9 Open questions`
+    Post-Phase-6 close-out**. §9 had stopped at planning-era
+    decisions; added a "Post-Phase-6 status (2026-05-30)"
+    subsection enumerating (a) what is suppressed in
+    `known_issues.md` and why, (b) what would re-arm each
+    suppression, (c) the suite-count contract (354/6/1).
+    Pure-documentation.
 
-  - **7d (✅ landed 2026-05-31) — Phase 5c multi-fixture parameterisation**: every
-    `test_phase5c_person_mirror_vs_host.py` case currently uses
-    `person_id=1762` (Wang Anshi). Parameterise with 2–3
-    additional fixtures spanning different dynasties / data
-    densities (e.g. Confucius=1 for very-old / sparse records,
-    a mid-Tang figure, a Ming/Qing figure). Each parametrised
-    case adds rows to the suite count. Catches edge cases the
-    single-fixture run hides (NULL handling, character set
-    edges, empty-list returns). Codex review.
+    *Codex round*: caught three issues — the 354/6/1 contract
+    was anchored at "HEAD" but 7c was about to add 4 passing
+    tests, so the anchor needed to point at the Phase 6 close
+    commit (`dddedc1`) instead; the "Active suppressions" table
+    mixed in a historical breadcrumb row that wasn't actually
+    active; the `avalonia_gap (legacy)` umbrella re-arm
+    condition was too weak ("at least one") and was re-phrased
+    so the umbrella stays open until all four services land.
 
-  - **7e (✅ landed 2026-05-31) — Phase 4 kinships pair multi-fixture with orphan-kin
-    proof case**: the `kinships_basic_person` known issue
-    documents that cbdb_replay's INNER JOIN drops orphan kin
-    while Avalonia's LEFT JOIN keeps them, but the existing
-    pair test (Su Shi / 1762) has no orphan kin so the gap is
-    invisible. Find a fixture with at least one orphan kin
-    (`c_kin_id` not present in BIOG_MAIN) and add a parametrised
-    case that EXPECTS the known-issue divergence — flips from
-    `assert diff.matches` to `assert <documented orphan count>`
-    so the gap has executable evidence rather than just prose.
-    Codex review.
+  - **7c (✅ landed 2026-05-31) — `reports/SUMMARY.md`
+    auto-generation hook**. Added a `cbdb-parity-summary` CLI
+    entrypoint wrapping the existing
+    `cbdb_parity.summary_report.write_summary` so the
+    `reports/SUMMARY.md` dashboard can be regenerated on
+    demand. Exit codes: 0 normal, 2 when the reports tree
+    doesn't exist. Added 3 CLI tests covering happy path,
+    missing-dir, and default-cwd resolution.
 
-  - **7f (✅ landed 2026-05-31) — Phase 4 replay_scan kinship extension**:
-    `test_phase4_replay_scan.py` currently scans entry / office
-    / status. After 6a kinships is now §0.b-compliant; extend
-    the scan to also drive `cbdb_replay.lookatkinship` for a
-    handful of seed persons spanning dynasties. Codex review.
+    *Codex round*: caught two issues — the rewrite happy-path
+    test didn't pre-seed a sentinel `SUMMARY.md`, so a CLI that
+    silently appended or refused would have false-passed (fixed
+    by writing a sentinel and asserting it's gone); the
+    `--reports-dir` flag accepted any path that `exists()`,
+    which would crash later in `iterdir()` if the path was a
+    file (fixed by adding an `is_dir()` check returning exit
+    code 2 with a controlled diagnostic, plus a 4th test
+    pinning the behaviour).
 
-  - **7g (✅ landed 2026-05-31) — GitHub Actions CI workflow**: `.github/` doesn't
-    exist. Add a CI workflow that on `push` and `pull_request`:
-    (1) installs the dev + harness extras (NOT access — pyodbc
-    is Windows-only), (2) runs `pytest --collect-only` to catch
-    import / syntax regressions, (3) runs the non-DB unit tests
-    (`tests/test_summary_report.py`, `tests/test_diff_report.py`
-    etc.), (4) lints `cbdb_parity/` and `parity_host/`.
-    Strictly does not attempt to build the mdb or sqlite (those
-    require Windows ODBC + Datadump access) or to spin up the
-    ParityHost (requires the AVALONIA_REPO clone). Test runs
-    that need the real databases stay local. Codex review.
+  - **7d (✅ landed 2026-05-31) — Phase 5c multi-fixture
+    parameterisation**. Each
+    `test_phase5c_person_mirror_vs_host.py` case had used only
+    `person_id=1762` (Wang Anshi); parameterised every
+    per-person accessor across three fixtures spanning two
+    dynasties — Wang Anshi (Northern Song), Li Bai (Tang,
+    32540), and Zhu Xi (Southern Song, 3257). 11 accessors × 2
+    new fixtures = +22 passing cases.
 
-  - **7h (✅ landed 2026-05-31) — ParityHost NDJSON daemon mode**: every host call
-    currently does `dotnet run --no-build --project … -- <service>
-    <sqlite-path>`. Cold start is ~1s. With ~60 host calls in
-    the suite that's ~60s of pure subprocess setup per full
-    pytest run. NDJSON daemon mode keeps one host process alive,
-    streams `{service, sqlite_path, request}` JSON frames over
-    stdin one per line, and reads `{response}` or
-    `{error, stack}` frames back over stdout one per line. The
-    one-shot mode stays available for debugging.
+    *Codex round*: caught a real false-pass class — the helper
+    accepted `[] == []` as a pass, so any (accessor, person_id)
+    combo with zero rows on the canonical dataset silently
+    passed without exercising the upstream SQL at all. Direct
+    `COUNT(*)` probes against `cbdb.sqlite` showed possessions
+    and institutions were empty for all three fixtures and
+    events was empty for two. Fixed with an explicit
+    `_EXPECTED_EMPTY` allow-list and a bidirectional gate:
+    combo NOT in allow-list AND host returns 0 → FAIL; combo
+    IN allow-list AND host returns ≥1 → FAIL. Also threaded
+    the `label` parameter through `_run_person_pair` so
+    assertion messages identify the failing fixture by name.
 
-    Concretely:
+  - **7e (✅ landed 2026-05-31) — Phase 4 kinships pair
+    orphan-kin proof case**. The `kinships_basic_person` known
+    issue documents that cbdb_replay's INNER JOIN drops orphan
+    kin while Avalonia's LEFT JOIN keeps them, but the canonical
+    fixture (Wang Anshi / 1762) has no orphan kin, so the gap
+    was invisible. Added a runtime detector that scans the
+    current build for any person with an orphan kin (`c_kin_id`
+    with no BIOG_MAIN match) and either asserts the documented
+    divergence shape against that person or skips with a
+    precise diagnostic. The 2026-04-30 Datadump has zero
+    orphans so the test skips, but it arms automatically the
+    moment a future dump produces one.
+
+    *Codex round*: caught three issues — the detector excluded
+    `NULL c_kin_id` rows even though those also fire the gap
+    (INNER JOIN drops NULL); a count-only assertion
+    (`rows_only_in_avalonia == expected_orphan_count`) could
+    false-pass if the same person also had an unrelated
+    only-in-Avalonia divergence (fixed by switching to a
+    row-identity check on the spliced `kin_person_id` set);
+    the skip message overstated "arms on any future dump"
+    without naming the smoke-test preconditions (built
+    mdb/sqlite, matching manifest SHA, pyodbc installed).
+
+  - **7f (✅ landed 2026-05-31) — Phase 4 replay_scan kinship
+    extension**. After 6a kinships became §0.b-compliant via
+    `cbdb_replay.lookatkinship`; extended
+    `test_phase4_replay_scan.py` to also drive that for three
+    additional seed persons spanning Tang (Li Bai), Northern
+    Song (Fan Zhongyan), Southern Song (Zhu Xi). Each verified
+    non-empty at fixture-design time.
+
+    *Codex round*: caught two issues — the case-payload
+    validator only checked dict-with-key, not value type, so a
+    corrupted payload like `{"person_id": "32540"}` or
+    `{"person_id": True}` would slip past the contract boundary
+    (fixed by adding non-bool-int validation; `bool` is a
+    subclass of `int` in Python and is rejected explicitly);
+    the kinship dispatch branch had the same empty-row trivial
+    pass class 7d fixed for Phase 5c (fixed with non-empty
+    asserts on both Avalonia and access rows before diffing).
+
+  - **7g (✅ landed 2026-05-31) — GitHub Actions CI workflow**.
+    `.github/` didn't exist. Added a workflow that on `push`
+    and `pull_request` (1) installs the dev + harness extras
+    (NOT access — pyodbc is Windows-only), (2) runs
+    `pytest --collect-only` to catch import / syntax
+    regressions across the entire test tree, (3) runs the
+    non-DB unit tests, (4) lints `cbdb_parity/` and `tests/`
+    with ruff. Does not attempt to build the mdb or sqlite
+    or spin up the ParityHost; those test runs stay local.
+
+    Also cleaned up the existing repo's ruff state so the lint
+    job would actually pass: auto-fixed 29 issues (mostly
+    I001 import order + unused imports) across 21 files, and
+    fixed one real B904 in `cbdb_parity.parity_host` (an
+    `except` clause that re-raised `ParityHostError` without
+    `from exc`, losing the underlying JSON-decode failure
+    context).
+
+    *Codex round*: flagged that the initial `RUF002/RUF003`
+    global ignore was broader than the actual need — it would
+    silently accept future accidental ambiguous-Unicode
+    anywhere in repo prose. Narrowed to
+    `[tool.ruff.lint.per-file-ignores]` scoped to the three
+    files where `×` / `−` are intentional technical notation
+    (`access_status_query.py`, `avalonia_postings.py`,
+    `test_parity_host_vs_mirror.py`); anywhere else, ruff
+    resumes catching accidental homoglyphs.
+
+  - **7h (✅ landed 2026-05-31) — ParityHost NDJSON daemon
+    mode**. Every host call had previously paid ~1s of
+    `dotnet run --no-build` cold-start. NDJSON daemon mode
+    keeps one host process alive and streams
+    `{service, sqlite_path, request}` JSON frames over stdin
+    (one per line) with `{ok: …}` or `{error, stack}` framed
+    responses on stdout. The one-shot mode stays available
+    for debugging.
+
+    Implementation:
     - C# side: a new `--daemon` flag puts `Program.Main` into a
       `while ((line = await Console.In.ReadLineAsync()) != null)`
-      loop; each iteration deserialises a `RequestFrame`, runs
-      the existing dispatch, writes a `ResponseFrame` line.
-    - Python side: `cbdb_parity.parity_host` exposes a new
-      `ParityHostDaemon` context manager that starts the
-      subprocess once, sends/receives one frame per call, and
-      cleans up on `__exit__`. The existing one-shot
-      `invoke_parity_host` keeps its public signature; an opt-in
-      `daemon=` kwarg or a session-level pytest fixture reuses a
-      shared daemon.
-    - Failure semantics: a daemon crash mid-frame surfaces as
-      `ParityHostError("daemon died after N frames")` carrying
-      stderr; the next call gets a fresh subprocess.
+      loop. Per-frame failures don't kill the daemon; EOF on
+      stdin exits 0. Explicit `FlushAsync()` after each response
+      line is required on Windows because stdout buffers don't
+      drain until process exit otherwise.
+    - Python side: `cbdb_parity.parity_host.ParityHostDaemon`
+      context manager spawns the daemon, surfaces per-frame
+      `{"error"}` payloads as `ParityHostError`, and on EOF
+      raises `ParityHostError("daemon died after N frames")`
+      carrying stderr.
+    - Per-frame errors keep the daemon alive; daemon-death is
+      a hard restart signal.
 
-    Expected runtime: from ~4 minutes for a full host-using
-    pytest run down to ~30 seconds. Largest single Phase 7 item.
-    Codex review on both the C# main-loop change and the
-    Python wrapper.
+    Phase 8a later wires this daemon into the heavy-traffic
+    test files via a session fixture (see Phase 8); 7h itself
+    landed the daemon + 4 smoke tests but didn't yet switch
+    any existing test over.
+
+    *Codex round*: caught three issues — `per_call_timeout_seconds`
+    was stored but never enforced, so a stuck dispatch would
+    hang pytest forever (fixed by wrapping
+    `proc.stdout.readline()` in a helper thread the main
+    thread joins with the configured timeout); nothing was
+    draining stderr during normal operation, so a child that
+    wrote ~64 KB to stderr would deadlock before flushing the
+    NDJSON response (fixed with a background thread that
+    drains stderr from `__enter__` to `__exit__` into a
+    bounded `deque`); `__exit__`'s timeout-then-kill path
+    discarded stdout/stderr buffers and lost the only useful
+    crash context (fixed by ordering close-stdin → wait →
+    kill-if-needed → signal-and-join the stderr drain
+    thread, so captured lines stay accessible).
 
   - **Expected suite delta** (additive only — no §0.b
     regressions): 7d adds ~6–10 parametrised cases, 7e adds 1,
