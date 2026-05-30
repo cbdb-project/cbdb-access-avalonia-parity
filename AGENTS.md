@@ -39,13 +39,29 @@ correct response is:
 3. **Hand the report off** to the upstream maintainer team out-of-band.
    The parity report file itself is the artifact that travels.
 
-The Python mirror layer in `cbdb_parity/avalonia_*.py` mirrors what
-upstream C# **actually does** at HEAD — not what we wish it would do.
-If the C# clamps `LIMIT` at 10,000, the Python mirror clamps at 10,000.
-Drift between mirror and reality is itself a bug for the parity
-harness to surface (and the eventual `Cbdb.App.ParityHost` route in
-Phase 5 eliminates the drift surface entirely by invoking the real
-C# directly).
+### No transcription (added 2026-05-30)
+
+This repo never re-implements upstream logic in Python. Every test
+calls **the upstream code itself**, not a Python equivalent of it.
+
+- **Avalonia side**: invoke `cbdb-desktop-app`'s real services
+  through `Cbdb.App.ParityHost` (see Phase 5). The Phase 3–4
+  hand-extracted-SQL mirror layer (`avalonia_query_sql.py` + the
+  `cbdb_parity/avalonia_*.py` SQL-extract path) was retired in
+  Phase 5c-final. Do not reintroduce that pattern.
+- **Access side**: invoke `cbdb-user-mdb-tests`'s
+  `cbdb_replay.lookat*` modules — the historical, user-validated
+  query scripts that constitute the Access-side "real code".
+  Template: `cbdb_parity/access_query.py`,
+  `access_office_query.py`, `access_status_query.py`. Hand-writing
+  `_ACCESS_SQL` strings inside `cbdb_parity/access_*.py` to
+  recreate Avalonia's joins is the Access-side equivalent of
+  mirror-layer transcription and is equally forbidden.
+- **No upstream → no test**: when a surface has no `cbdb_replay.lookat*`
+  analogue, that surface cannot have a Phase 4 pair test under this
+  rule. Use Phase 5c mirror-vs-host as the Avalonia-side oracle and
+  document the Access-side gap in `reports/known_issues.md`. See
+  WORK_PLAN.md Phase 6 for the cleanup plan.
 
 ## External resources
 

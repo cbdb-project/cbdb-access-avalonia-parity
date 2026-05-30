@@ -3,8 +3,9 @@
 ## 0. Scope contract (read first)
 
 This repository is a **detection / parity test harness**. Every
-contributor — human or agent — operates under the following rule:
+contributor — human or agent — operates under the following rules.
 
+### 0.a — No upstream modifications
 - We surface Avalonia ↔ Access disagreements, document them in
   `reports/known_issues.md`, and let the parity gate skip them via
   `Suppress until …` clauses.
@@ -16,15 +17,39 @@ contributor — human or agent — operates under the following rule:
   resolution is **always**: re-arm the auto-skip, link the
   `known_issues.md` entry, raise the issue with the upstream team
   separately. Never patch the other repo from here.
-- The Python mirror layer in `cbdb_parity/avalonia_*.py` mirrors what
-  the upstream C# **actually does** at HEAD — not what we wish it
-  would do. If C# clamps `LIMIT` at 10,000, the Python mirror clamps
-  at 10,000.
+
+### 0.b — No transcription (added 2026-05-30)
+This repo never re-implements upstream logic in Python. Every test
+must call **the upstream code itself**, not a Python equivalent of
+it. Concretely:
+
+- **Avalonia side**: tests invoke `cbdb-desktop-app`'s real services
+  via `Cbdb.App.ParityHost` (see Phase 5). Hand-extracting SQL from
+  `Sqlite*Service.cs` and re-running it through Python `sqlite3`,
+  hand-porting a BFS state machine, or otherwise "mirroring what
+  the C# does" in Python — all forbidden as of Phase 5c-final. The
+  Phase 3–4 mirror layer (`cbdb_parity/avalonia_query_sql.py` +
+  `avalonia_*` SQL-extract path) is retired.
+- **Access side**: tests invoke `cbdb-user-mdb-tests`'s
+  `cbdb_replay.lookat*` modules — the historical, user-validated
+  query scripts that constitute the Access-side "real code". The
+  pre-existing pattern in `cbdb_parity/access_query.py` /
+  `access_office_query.py` / `access_status_query.py` (Phase 3c/3d/3e)
+  is the template. Hand-writing `_ACCESS_SQL` strings inside
+  `cbdb_parity/access_*.py` to recreate Avalonia's joins is the
+  Access-side equivalent of mirror-layer transcription and is
+  equally forbidden going forward.
+- **Implication**: any Tier-2 surface for which neither side has
+  a "real code" to call (e.g. Phase 4 per-person accessors that
+  have no `cbdb_replay.lookat*` analogue) **cannot** have a Phase 4
+  pair test under this rule. Use Phase 5c's mirror-vs-host check as
+  the Avalonia-side oracle and document the Access-side gap in
+  `reports/known_issues.md`. See Phase 6 for the cleanup plan.
 
 The companion `cbdb-desktop-app` repo on the user's machine is
-treated as a read-only reference for SQL extraction. Local edits to
-that tree, and pushes to any of its remotes, are explicitly
-out-of-scope for any /goal directed at this repository.
+treated as a read-only reference. Local edits to that tree, and
+pushes to any of its remotes, are explicitly out-of-scope for any
+`/goal` directed at this repository.
 
 ## 1. Objective
 Build an independent comparison harness in `cbdb-access-avalonia-parity` that, for **every query feature** in the CBDB Avalonia desktop app (`cbdb-desktop-app`), runs the equivalent query against a CBDB Access stack and diffs the results. The harness must (a) reuse the test-design ideas from `cbdb-user-mdb-tests`, (b) feed both stacks from the **same** Datadump so any difference is logic, not data, and (c) report each Access ↔ Avalonia disagreement with a root cause.
@@ -313,7 +338,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
       (c_name_chn, c_title_chn, etc.) mojibake under the default
       Windows code page and parity diffs become meaningless.
 
-  - **5b — Python harness switchover**: each of the existing
+  - **5b — Python harness switchover (✅ landed 2026-05-29)**: each of the existing
     `cbdb_parity/avalonia_*.py` modules currently does
     `extract_sql_blocks(cs_path) → sqlite3.connect(...).execute(...)`.
     Adds a NEW execution mode `via_parity_host(...)` that
@@ -323,7 +348,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     produce identical row sets — any divergence is a Python-mirror
     bug we've been failing to catch).
 
-  - **5c — phase out the Python mirror layer** once the
+  - **5c — phase out the Python mirror layer (✅ landed 2026-05-29)** once the
     via-ParityHost path is proven equivalent: drop the SQL extractor +
     its associated rewrites (`_csharp_params_to_sqlite`,
     `_join_display`, `_to_bool_or_none`, the AddrField casefold, the
@@ -344,7 +369,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     `avalonia_{query_sql, altnames, kinships, kinships_expanded}.py`
     cluster until 5d signs off, then delete all four in one commit.
 
-  - **5d — kinship expandNetwork=true cross-check** (must precede
+  - **5d — kinship expandNetwork=true cross-check (✅ landed 2026-05-29, then retired in 5c-final)** (must precede
     5c's deletion of the kinships_expanded.py module): the BFS state
     machine in `cbdb_parity/avalonia_kinships_expanded.py` is the
     biggest manual port. Run both ports against the same set of
@@ -398,6 +423,122 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
       extractor (or the `avalonia_kinships_expanded.py` BFS port,
       explicitly) until 5d's byte-for-byte cross-check passes; the
       existing 400-test green state is the floor.
+
+- **Phase 6 (planned 2026-05-30 onwards)** — enforce the §0.b
+  "no transcription" rule retrospectively across Phase 4.
+
+  Phase 5c-final retired the Python mirror layer on the Avalonia
+  side but left Phase 4's Access-side hand-written `_ACCESS_SQL`
+  bridges in place — they recreate Avalonia's joins inside
+  `cbdb_parity/access_*.py` and are exactly the transcription
+  pattern §0.b forbids. Phase 6 aligns Phase 4 with the new rule.
+
+  The Access-side "real code" is `cbdb-user-mdb-tests`'s
+  `cbdb_replay.lookat*` modules (the same package Phase 3c/3d/3e
+  already drive via `cbdb_parity/access_query.py` /
+  `access_office_query.py` / `access_status_query.py` — that is
+  the integration template every Phase 6 rewrite copies).
+
+  - **6a — rewrite the bridges that have a cbdb_replay analogue**.
+    Two surfaces have a `cbdb_replay.lookat*` module available:
+
+      | surface       | upstream module                  | current bridge                     |
+      |---------------|----------------------------------|------------------------------------|
+      | kinships      | `cbdb_replay.lookatkinship`      | `cbdb_parity.access_kinships`      |
+      | associations  | `cbdb_replay.lookatassociations` | `cbdb_parity.access_associations`  |
+
+    Replace `_ACCESS_SQL` + pyodbc plumbing with the
+    `_ensure_cbdb_replay_on_path` + `replay_run` + field projection
+    pattern (template: `cbdb_parity/access_office_query.py`).
+    Update `tests/test_phase4_kinships_pair.py` and
+    `tests/test_phase4_associations_pair.py` to thread the
+    `access_tests_repo` kwarg through. Codex review.
+
+  - **6b — delete the bridges that have NO cbdb_replay analogue**.
+    Eleven surfaces have no upstream-validated Access query script
+    — they were only ever touched through the Access UI by hand:
+
+    ```
+    addresses, altnames, biog_basic, detail,
+    entries (per-person), events, institutions,
+    possessions, postings, sources,
+    statuses_person, writings
+    ```
+
+    Their `cbdb_parity/access_<surface>.py` modules and the
+    matching `tests/test_phase4_<surface>_pair.py` files come out.
+    The Avalonia-side oracle for these 11 surfaces is preserved by
+    `tests/test_phase5c_person_mirror_vs_host.py`, which is unaffected.
+
+    Files to remove (12 + 12; postings counts in here even though
+    its bridge was already a stub):
+
+    ```
+    cbdb_parity/access_addresses.py    tests/test_phase4_addresses_pair.py
+    cbdb_parity/access_altnames.py     tests/test_phase4_altnames_pair.py
+    cbdb_parity/access_biog_basic.py   tests/test_phase4_biog_basic_pair.py
+    cbdb_parity/access_detail.py       tests/test_phase4_detail_pair.py
+    cbdb_parity/access_entries.py      tests/test_phase4_entries_pair.py
+    cbdb_parity/access_events.py       tests/test_phase4_events_pair.py
+    cbdb_parity/access_institutions.py tests/test_phase4_institutions_pair.py
+    cbdb_parity/access_possessions.py  tests/test_phase4_possessions_pair.py
+    cbdb_parity/access_postings.py     tests/test_phase4_postings_pair.py
+    cbdb_parity/access_sources.py      tests/test_phase4_sources_pair.py
+    cbdb_parity/access_statuses_person.py
+                                       tests/test_phase4_statuses_person_pair.py
+    cbdb_parity/access_writings.py     tests/test_phase4_writings_pair.py
+    ```
+
+    `coverage/matrix.md` is updated to mark each row "no Access
+    ground truth; tracked in `reports/known_issues.md`
+    `tier2_per_person`". Codex review.
+
+  - **6c — add Phase 5e pair tests via cbdb_replay**.
+    Two of the three Phase 5e surfaces have a cbdb_replay analogue
+    and can graduate from smoke-only to pair tests:
+
+      | surface       | upstream module               | new test                                  |
+      |---------------|-------------------------------|-------------------------------------------|
+      | group_people  | `cbdb_replay.lookatgroupdata` | `tests/test_phase5e_group_people_pair.py` |
+      | place_lookup  | `cbdb_replay.lookatplace`     | `tests/test_phase5e_place_lookup_pair.py` |
+
+    `dynasty_lookup` has no cbdb_replay analogue and stays
+    smoke-only (the current `tests/test_phase5e_lookups_smoke.py`
+    coverage is the floor). Codex review.
+
+  - **6d — biog_basic keyword branch coverage**.
+    Add a keyword-search case (e.g. `keyword="王安石"`) to
+    `tests/test_phase5c_person_mirror_vs_host.py::test_biog_basic_mirror_vs_host`.
+    This is host-vs-host (upstream service vs upstream service via
+    the wire format), not Phase 4 pair — biog_basic has no
+    cbdb_replay analogue so Phase 4 stays out of scope per 6b.
+    Codex review.
+
+  - **Expected test-suite delta**:
+    - 12 Phase 4 tests deleted (6b) — pure subtraction.
+    - 2 Phase 4 tests rewritten (6a) — same count, different backend.
+    - 2 Phase 5e pair tests added (6c) — pure addition.
+    - 1 Phase 5c case added (6d) — pure addition.
+
+    Current floor: 364 passed. Projected: ~355 passed. The 12-test
+    drop is the explicit cost of enforcing §0.b — those tests were
+    asserting "my hand-written SQL == upstream's SQL", which the
+    new rule classifies as a false oracle.
+
+  - **Out of scope for Phase 6** (per §0 + §0.b):
+    - postings raw-row diff via Python unfolding: would re-create
+      Avalonia's nested-to-flat transform in Python = transcription.
+      Postings stays uncovered on the Access side until upstream
+      adds `cbdb_replay.lookatpostings`.
+    - Texts / Networks / AssociationPairs: upstream has no service.
+    - detail's `fields` (PersonExtra2024): Access has no analogue
+      to extract; already excluded from Phase 5c compare.
+    - `cbdb-user-mdb-tests` modifications: out of scope per §0.
+
+  - **Sequencing**: 6a → 6b → 6c → 6d, each ending with `git push`
+    after codex sign-off. Phase 6 is incremental; the repo stays
+    green at every commit boundary (suite count drops only between
+    6b's commits, not within them).
 
 ## 9. Open questions
 

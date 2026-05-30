@@ -295,6 +295,52 @@ AND the scope cbdb_replay does NOT yet cover):
 - **Suppress until**: at least one of Texts / Networks /
   AssociationPairs / Place lands in `cbdb-desktop-app`.
 
+### tier2_per_person — 11 surfaces have no Access ground truth (added 2026-05-30)
+
+- **First observed**: 2026-05-30
+- **Side**: Access (gap)
+- **Class**: Access-side missing-oracle (structural)
+- **Description**: Eleven Phase 4 Tier-2 per-person accessors lack
+  any `cbdb_replay.lookat*` module in `cbdb-user-mdb-tests`:
+
+  ```
+  addresses, altnames, biog_basic, detail, entries (per-person),
+  events, institutions, possessions, postings, sources,
+  statuses_person, writings
+  ```
+
+  cbdb_replay has `lookat{entry, office, status, kinship,
+  associations, associationpairs, place, networks, groupdata,
+  texts}` only — none of the eleven above. Phase 4 pair tests
+  currently use hand-written `_ACCESS_SQL` strings in
+  `cbdb_parity/access_*.py` to recreate Avalonia's join shape,
+  which is exactly the transcription pattern that WORK_PLAN §0.b
+  forbids as of 2026-05-30.
+- **Root cause**: there has historically been no Access query
+  script for these per-person surfaces — they were touched only
+  through the Access UI by hand, never through `cbdb_replay`.
+  Without an upstream-validated query to call, this repo has no
+  oracle for "what the Access side should return" on these
+  surfaces.
+- **Coverage that REMAINS**: Phase 5c mirror-vs-host
+  (`tests/test_phase5c_person_mirror_vs_host.py`) exercises the
+  real upstream C# service for every one of these 11 surfaces, so
+  the "Avalonia side produces the right output" half of the parity
+  question is still gated.
+- **Coverage that is LOST**: the "Access engine and Avalonia
+  engine agree row-by-row on this per-person surface" cross-engine
+  check — but as of 2026-05-30 that check was a false-oracle
+  comparison (hand-written SQL vs upstream SQL) and its retention
+  conflicted with §0.b.
+- **Suppress rationale**: per §0.b, the only acceptable Access-side
+  test invocation is `cbdb_replay.lookat*`. The eleven surfaces
+  have no such module, so the Phase 4 pair tests must come down
+  pending an upstream `cbdb-user-mdb-tests` commit that adds them.
+- **Suppress until**: `cbdb-user-mdb-tests` adds a `lookat<surface>`
+  module for the surface in question. WORK_PLAN Phase 6 schedules
+  the cleanup (delete `cbdb_parity/access_<surface>.py` + the
+  matching `tests/test_phase4_<surface>_pair.py`).
+
 ## Suppression sunset
 
 Per WORK_PLAN §7, every entry in this file should also have a
