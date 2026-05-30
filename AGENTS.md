@@ -63,6 +63,64 @@ calls **the upstream code itself**, not a Python equivalent of it.
   document the Access-side gap in `reports/known_issues.md`. See
   WORK_PLAN.md Phase 6 for the cleanup plan.
 
+## Phase 7 + Phase 8 operational landings (added 2026-05-31)
+
+Two infrastructure pieces landed in Phase 7 / Phase 8 that new
+contributors should know about up front.
+
+### CI workflow (Phase 7g)
+
+`.github/workflows/ci.yml` runs on every `push` and
+`pull_request`. It installs only the `[dev,harness]` extras
+(NOT `[access]` — pyodbc is Windows-only), runs
+`pytest --collect-only` to catch import / syntax regressions
+across the whole test tree, runs the non-DB unit tests
+(summary_report, diff_report, config, datadump, mysqldump,
+access_types, access_schema), and lints `cbdb_parity/` +
+`tests/` with ruff.
+
+What CI deliberately does NOT do:
+- build the mdb or sqlite (Windows ODBC + Datadump required),
+- spin up the ParityHost (needs the AVALONIA_REPO clone),
+- run any test that touches the real databases.
+
+Those test runs stay local. Contributors whose changes
+touch imports, the non-DB unit tests, or the lint scope
+should ensure CI stays green.
+
+### ParityHost daemon mode (Phase 7h + Phase 8a)
+
+`Cbdb.App.ParityHost` has two run modes:
+
+- **One-shot** (default — `dotnet run --project … -- <service>
+  <sqlite-path>`): every call spawns a fresh subprocess.
+  Cold-start ~1 s per call. Suitable for ad-hoc invocation and
+  for the one-shot tests in `tests/test_phase7h_parity_host_daemon.py`
+  that exercise the lifecycle directly.
+- **Daemon** (`--daemon` flag): a single long-lived subprocess
+  reads NDJSON request frames on stdin and writes NDJSON
+  response frames on stdout. Per-call cost drops to tens of
+  milliseconds.
+
+Test opt-in for the daemon goes through the
+`parity_host_daemon` pytest fixture defined in
+`tests/conftest.py`. A test (or a whole module via
+`pytestmark = pytest.mark.usefixtures("parity_host_daemon")`)
+that declares the fixture gets every `invoke_parity_host` /
+`invoke_person_accessor_via_host` call routed through the
+session-bound daemon automatically. `tests/test_phase5c_person_mirror_vs_host.py`
+and `tests/test_phase4_replay_scan.py` are the canonical
+examples. Tests that manage their own
+`with ParityHostDaemon(...) as host:` block (e.g. Phase 7h's
+smoke tests) still work — they bypass the ContextVar binding
+and own the subprocess lifecycle directly.
+
+The host-using subset of the suite runs ~150 s in one-shot
+mode vs ~61 s under the daemon binding. The full
+`pytest tests/` cost is dominated by non-host work
+(build pipeline, mariadb cache, lint setup) that the daemon
+doesn't speed up.
+
 ## External resources
 
 Configured in `.env` (see `.env.sample` for the full schema and key list).
