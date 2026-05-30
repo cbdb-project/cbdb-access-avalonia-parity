@@ -295,6 +295,38 @@ AND the scope cbdb_replay does NOT yet cover):
 - **Suppress until**: at least one of Texts / Networks /
   AssociationPairs / Place lands in `cbdb-desktop-app`.
 
+### kinships_basic_person — cbdb_replay INNER JOIN drops orphan kin (added 2026-05-30)
+
+- **First observed**: 2026-05-30 during Phase 6a rewrite
+- **Side**: Access (cbdb_replay scope)
+- **Class**: row-set contract gap
+- **Description**: Avalonia's `GetKinshipsAsync` (expandNetwork=false)
+  uses `LEFT JOIN BIOG_MAIN kin ON kin.c_personid = kd.c_kin_id`, so
+  a KIN_DATA row whose `c_kin_id` has no BIOG_MAIN row still appears
+  in the result with `kin_name_chn` / `kin_name` = NULL.
+  `cbdb_replay.lookatkinship.run` uses
+  `INNER JOIN BIOG_MAIN AS BIOG_MAIN_1 ON c_kin_id = BIOG_MAIN_1.c_personid`,
+  which silently drops those orphan rows.
+- **Root cause**: cbdb_replay's `LookAtKinship` was historically a
+  display query (it'd never show an orphan kin in the Access UI),
+  so the INNER JOIN was acceptable in that context. Avalonia's
+  newer per-person accessor is a data API and preserves the orphan
+  for the caller. The two are designed for different audiences.
+- **Coverage that REMAINS**: Phase 5c mirror-vs-host
+  (`test_phase5c_person_mirror_vs_host.py`) still exercises the
+  Avalonia side with orphans included, so the Avalonia-side
+  oracle is preserved.
+- **Suppress rationale**: this is a `cbdb-user-mdb-tests` query
+  scope difference, not a CBDB data bug. The harness should
+  surface it (the pair test will fail row-count once a dump
+  contains an orphan kin for the canonical fixture), not paper
+  over it with a transcribed LEFT JOIN inside the bridge — that
+  would violate §0.b.
+- **Suppress until**: `cbdb-user-mdb-tests` adds a LookAtKinship
+  variant that uses LEFT JOIN, or the parity request explicitly
+  filters out orphan-kin person fixtures. Su Shi (1762) has no
+  orphan kin today, so the current pair test passes.
+
 ### tier2_per_person — 11 surfaces have no Access ground truth (added 2026-05-30)
 
 - **First observed**: 2026-05-30

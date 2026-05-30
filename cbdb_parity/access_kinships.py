@@ -13,6 +13,16 @@ subset only (1-hop). Multi-hop traversal would raise
 `NotImplementedError` upstream, so this bridge never asks for it —
 the matching Avalonia call is also `expandNetwork=false`.
 
+Known row-set contract gap (see
+`reports/known_issues.md#kinships_basic_person`):
+cbdb_replay's INNER JOIN on `BIOG_MAIN_1` drops orphan kin (KIN_DATA
+rows whose `c_kin_id` has no BIOG_MAIN match). Avalonia uses LEFT
+JOIN and surfaces them with NULL kin names. We do NOT paper over
+this with a transcribed LEFT JOIN inside the bridge — that would
+violate §0.b. The current canonical fixture (Su Shi / 1762) has no
+orphan kin so the pair test passes; a dump with orphan kin would
+fail row-count.
+
 Cross-section: the comparable columns are limited to what BOTH
 backends emit RAW (no transcription of upstream formatting). That
 excludes the `kinship` joined label (Avalonia's
