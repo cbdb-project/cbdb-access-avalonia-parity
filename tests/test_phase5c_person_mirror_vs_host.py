@@ -28,6 +28,15 @@ from typing import Any
 
 import pytest
 
+# Phase 8a — every test in this module routes its host calls
+# through the session-scoped ParityHostDaemon. The fixture
+# (defined in tests/conftest.py) binds the daemon via
+# `bind_active_daemon` so the existing `invoke_parity_host` and
+# `invoke_person_accessor_via_host` call sites automatically
+# pick it up without per-call wiring. The fixture skips
+# cleanly when the local prereqs are missing.
+pytestmark = pytest.mark.usefixtures("parity_host_daemon")
+
 
 def _load_config_or_skip():
     """Skip only on a *missing* config (env not set up); a config

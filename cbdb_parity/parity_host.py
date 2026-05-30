@@ -20,6 +20,8 @@ Per `WORK_PLAN.md §Phase 5a` the contract:
 from __future__ import annotations
 
 import collections
+import contextlib
+import contextvars
 import json
 import os
 import shutil
@@ -45,6 +47,46 @@ class ParityHostError(RuntimeError):
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _HOST_PROJECT = _REPO_ROOT / "parity_host" / "Cbdb.App.ParityHost" / "Cbdb.App.ParityHost.csproj"
+
+
+# Phase 8a — process-wide active daemon binding. When set (via
+# `bind_active_daemon` or `ParityHostDaemon.__enter__` with
+# `bind=True`), `invoke_parity_host` and
+# `invoke_person_accessor_via_host` route through the daemon
+# instead of spawning a fresh subprocess. Default None = the
+# legacy one-shot behaviour every call site previously got.
+#
+# A ContextVar (not a module-level global) so concurrent pytest
+# workers, async callers, or future asyncio integrations all
+# get isolated bindings rather than stepping on each other.
+_active_daemon: contextvars.ContextVar[ParityHostDaemon | None] = (
+    contextvars.ContextVar("_active_daemon", default=None)
+)
+
+
+@contextlib.contextmanager
+def bind_active_daemon(daemon: ParityHostDaemon):
+    """Bind `daemon` as the process-active daemon for the
+    duration of the `with` block. Inside the block, every call
+    to `invoke_parity_host` or `invoke_person_accessor_via_host`
+    routes through the daemon — no subprocess per call.
+
+    Usage::
+
+        with ParityHostDaemon(avalonia_repo=cfg.avalonia_repo) as d:
+            with bind_active_daemon(d):
+                # everything here uses d under the hood
+                run_heavy_test_suite()
+
+    Outside an active binding, the two invoke functions fall back
+    to the legacy `dotnet run` one-shot path. That keeps existing
+    one-shot tests and ad-hoc callers working unchanged.
+    """
+    token = _active_daemon.set(daemon)
+    try:
+        yield daemon
+    finally:
+        _active_daemon.reset(token)
 
 
 def _dotnet_path() -> str:
@@ -117,7 +159,20 @@ def invoke_parity_host(
     ParityHostError if the host exits non-zero.
     TimeoutExpired if the host hangs longer than timeout_seconds.
     FileNotFoundError if dotnet isn't installed.
+
+    Notes
+    -----
+    Phase 8a — if a ParityHostDaemon is bound on this context
+    via `bind_active_daemon(...)`, the call routes through the
+    daemon's NDJSON loop instead of spawning a fresh subprocess.
+    The wire-format response shape is identical (daemon mode
+    unwraps the `{"ok": ...}` envelope before returning), so
+    callers don't need to know which path serviced their call.
     """
+    daemon = _active_daemon.get()
+    if daemon is not None:
+        return daemon.invoke(service, sqlite_path, request)
+
     payload = json.dumps(_to_jsonable(request), ensure_ascii=False).encode("utf-8")
 
     # Inherit the existing process env and overlay AVALONIA_REPO.
@@ -462,6 +517,7 @@ class ParityHostDaemon:
 __all__ = [
     "ParityHostDaemon",
     "ParityHostError",
+    "bind_active_daemon",
     "build_parity_host",
     "invoke_parity_host",
     "invoke_person_accessor_via_host",

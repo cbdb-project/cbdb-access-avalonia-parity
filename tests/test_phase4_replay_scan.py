@@ -30,6 +30,15 @@ from typing import Any
 
 import pytest
 
+# Phase 8a — kinship cases route through ParityHost too. The
+# entry/office/status cases only touch cbdb_replay + Access
+# (no host call), so the fixture is a no-op for them; but
+# kinship cases call `kinships_query` which goes through
+# `invoke_parity_host`, and that's where the daemon-routing
+# kicks in. usefixtures at module level lets every parametrised
+# case opt in without changing the existing function signatures.
+pytestmark = pytest.mark.usefixtures("parity_host_daemon")
+
 
 def _skip_if_missing(*paths: Path) -> None:
     for p in paths:

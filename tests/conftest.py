@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import shutil
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -48,3 +50,51 @@ def fake_env(tmp_path: Path) -> Path:
     lines += [f"{k}={v}" for k, v in dirs.items()]
     env.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return env
+
+
+@pytest.fixture(scope="session")
+def parity_host_daemon() -> Iterator[object]:
+    """Phase 8a — session-scoped fixture that starts one
+    `ParityHostDaemon` and binds it as the process-active
+    daemon for the duration of the session. Any test that
+    declares `parity_host_daemon` (directly or transitively)
+    gets every subsequent `invoke_parity_host` /
+    `invoke_person_accessor_via_host` call routed through
+    the daemon's NDJSON loop instead of a per-call
+    `dotnet run` subprocess.
+
+    The fixture skips cleanly when the prereqs that the
+    one-shot Phase 5c tests already check are missing
+    (config not loadable, `.NET SDK` absent, ParityHost DLL
+    not built, sqlite not built). That mirrors the
+    same-test behaviour: tests declaring the fixture skip
+    instead of fail when local infra isn't there.
+
+    Yields the daemon for callers that want to use the
+    explicit `daemon.invoke(...)` API; tests that only want
+    the routing don't have to do anything with it.
+    """
+    try:
+        from cbdb_parity.config import load_config
+    except ImportError:
+        pytest.skip("cbdb_parity.config not importable")
+    try:
+        cfg = load_config()
+    except FileNotFoundError as exc:
+        pytest.skip(f"config not configured: {exc}")
+
+    if not (shutil.which("dotnet") or Path(r"C:\Program Files\dotnet\dotnet.exe").is_file()):
+        pytest.skip(".NET SDK not installed")
+    repo_root = Path(__file__).resolve().parent.parent
+    host_dll = (
+        repo_root / "parity_host" / "Cbdb.App.ParityHost"
+        / "bin" / "Debug" / "net8.0" / "cbdb-parity-host.dll"
+    )
+    if not host_dll.is_file():
+        pytest.skip("ParityHost DLL not built")
+
+    from cbdb_parity.parity_host import ParityHostDaemon, bind_active_daemon
+
+    with ParityHostDaemon(avalonia_repo=cfg.avalonia_repo) as daemon:
+        with bind_active_daemon(daemon):
+            yield daemon
