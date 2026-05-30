@@ -846,8 +846,75 @@ BIOG basic、kinship recursive、associations 当时有形状不匹配，需要�
 - ✅ **缓存**：生成的 Access `cbdb_data.mdb` 和 Avalonia `cbdb.sqlite` 都按 Datadump 文件名 + SHA 缓存。同一份 SHA 直接复用，除非 Datadump 换了或用户显式传 `--rebuild`。
 - ✅ **Python → Docker 切换门槛**：**不**用工作日衡量。4a（1.3b）和 4b 实施期间，由用户**主动**触发 Codex review 检查 Python port 代码。如果**连续三轮 Codex review 仍然指出严重问题**，就把对应那一步切到 Docker MySQL 兜底。Codex review 由用户触发，不自动跑。
 - ✅ **Codex CLI 调用默认参数**：`codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-5.4 -c model_reasoning_effort=medium review --uncommitted --title "..."`。在本机 Windows 上，codex 默认 sandbox 会 `spawn setup refresh` 报错把所有 shell 命令屏蔽掉，所以需要 dangerous-bypass；`gpt-5.4` + `medium` 是 per-section gate 的基线，保证多轮 review 之间的发现可比。详见 `AGENTS.md`，以及在什么场景下需要偏离这套默认（如 CI 机器、有特别微妙不变量的环节）。
+- ✅ **LICENSE**：Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International（CC BY-NC-SA 4.0）。
 - ✅ **空 mdb 起步（1.3b）**：用 `pypyodbc.win_create_mdb()` —— 实测一行调用生成 172 KB 空 mdb。**不用** `pyodbc`（不存在文件直接报错）、**不用** ADOX/`win32com`（重）、**不用**在 repo 里 commit 模板（不可复现）。`pypyodbc` 加进 `[access]` extra 依赖，只用这一个函数；其他所有 mdb 操作继续走 `pyodbc`。
 - ✅ **MariaDB 中间缓存（Phase 1.6）**：Phase 1.3b 在真实 Datadump 上撞到 Jet 的两个硬伤（2 GB 事务 buffer 上限、PK-on-duplicates `IntegrityError 23000`）后，确定把 MariaDB 中间层作为 sqlite_builder + mdb_builder 的**默认** import source。该缓存层**不**违反 §1 严格流水线规则禁止使用本机已有 user mdb 的条款 —— 它由我们自己从 Datadump 灌出来，靠 in-DB SHA provenance 行做缓存校验。Phase 1.6 之前的 `cbdb_parity.mysqldump` 直链路径保留为非 Docker 主机的 fallback (`source='datadump'`)。**本条决策与前文 "连续三轮 codex → Docker MySQL 兜底" 的触发条件是互补的**，不是替代 —— 那一条仍然约束 **SQLite builder 内部** Python 端口 vs Docker MySQL 的选择。
+
+### Post-Phase-6 status (2026-05-30)
+
+Phase 7b 收尾时回填，2026-05-30 加入。锚定 Phase 6 关
+闭、Phase 7 开始的那一刻 suite 和 suppression 的快照。
+
+**Suite-count 契约（Phase 6 close 的 canonical 数字 ——
+commit `dddedc1`）：**
+
+- 354 passed
+- 6 skipped（每条都有显式文档化的原因，详见下面）
+- 1 xfailed（`entry/all_jinshi_general_song` replay scan
+  case：cbdb_replay 没有 ORDER BY，被截断的行集与
+  Avalonia 的硬 LIMIT 上限不重合；详细原因写在
+  `tests/test_phase4_replay_scan.py` 和
+  `coverage/replay_scan_results.md` 里）。
+
+这些数字锚定到 Phase 6 close commit，不锚定 HEAD ——
+Phase 7 子阶段会以 additive 方式把 passed 数往上推
+（按预期不会有 §0.b regression；详见上面 Phase 7 子阶段
+的 delta 说明）。任何改这些数字的改动都要在 commit
+message 里把 delta 记下来，方便后人 reconstruct。
+
+**当前 §0.b 兼容的 pair tests（4 个）：** Tier 1
+entry / office / status 通过
+`cbdb_replay.lookat{entry,office,status}`（Phase 3c/3d/
+3e） + Tier 2 kinships 通过 `cbdb_replay.lookatkinship`
+（Phase 6a）。
+
+**`reports/known_issues.md` 里的活跃 suppression 以及
+让每条 re-arm 的条件：**
+
+| 条目 | re-arm 条件 |
+|---|---|
+| `kinships_basic_person`（INNER vs LEFT JOIN orphan-kin 缺口） | cbdb-user-mdb-tests 加 LookAtKinship 的 LEFT JOIN 变体，**或** parity request 显式排除 orphan-kin fixture。Phase 7e 加了 executable assertion 锚定当前缺口形状。 |
+| `associations_basic_person`（lookatassociations 没有 person_id 输入——question-shape 不匹配） | cbdb-user-mdb-tests 加 LookAtAssociations 的 per-person 变体。 |
+| `phase5e_lookups`（group_people / place_lookup / dynasty_lookup 都没有 §0.b 兼容的 pair） | 对称：要么 cbdb-user-mdb-tests 加合适的 `lookat*` 模块（place options / GroupPeopleQueryResult 形状的变体 / `lookatdynasty`），要么 cbdb-desktop-app 收敛到现有 cbdb_replay 的 question shape（例如 `GetPeopleAtPlacesAsync` 匹配 `lookatplace`）。 |
+| `tier2_per_person`（12 个 surface 没 cbdb_replay.lookat* 模块，外加 associations 交叉引用） | cbdb-user-mdb-tests 加 per-surface `lookat<surface>` 模块。Phase 6b 移除了 bridge 和 pair test；本 repo 下游没什么要清理的。 |
+| `avalonia_gap (legacy)` Texts/Networks/AssociationPairs/Place | 每个 surface 独立 clear，对应 service 在 cbdb-desktop-app 落地。umbrella 条目一直挂到四个都到位；落地一个**不**会清这一行——只会缩窄剩下的缺口。per-surface 进度看 `coverage/avalonia_queries.yaml`，不要看这一行。 |
+
+`known_issues.md` 里的 `events_basic_person` /
+`postings_basic_person` / `office_basic` legacy 条目
+是 Phase 5c-final 和 Phase 6b 退役对应代码路径之前的
+历史 breadcrumb。它们**不是**活跃 suppression，也没有
+re-arm 条件——只作为 commit-history context 保留。
+
+以上所有 re-arm 条件都要改别的 repo，按 §0.a 不在本
+repo 范围内，按 2026-05-30 用户指示也不开 issue 去
+请求。所以这些 suppression 等上游独立行动。
+
+**用户已确认本 repo 不做的 out-of-scope 工作：**
+
+- F1 —— 对
+  `cbdb-project/cbdb-access-avalonia-parity`（或任何其他
+  repo）提 GitHub issue 跟踪 `known_issues.md` 条目。
+  2026-05-30 起 `known_issues.md` 本身就是 canonical
+  action list。
+- F2 —— 对 `cbdb-user-mdb-tests` 或 `cbdb-desktop-app`
+  提 GitHub issue 请求上面 re-arm 条件里点名的上游改动。
+
+Phase 7 当时是 Phase 6 close 时所看到的本 repo 内部
+backlog；执行中带出一个收尾审计（即 Phase 8），Phase 8
+又带出两个收尾的 cosmetic 缺口（Phase 7 子阶段 prose 还
+停在 planning future tense，AGENTS.md 还没引用 CI/
+daemon），合并成 Phase 9。最终收尾详见下面的
+Post-Phase-9 status 段。
 
 ### Post-Phase-9 status (2026-05-30)
 
@@ -916,4 +983,3 @@ Phase 9 自己显式终止了"每个阶段回头清理上一个阶段 prose"
 下一次变化要么是下游使用者在 `known_issues.md` 里把过时
 suppression 清理掉，要么是上游 commit（`cbdb-user-mdb-tests`
 / `cbdb-desktop-app`）让某条之前 skip 的 test 重新 arm。
-- ✅ **LICENSE**：Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International（CC BY-NC-SA 4.0）。
