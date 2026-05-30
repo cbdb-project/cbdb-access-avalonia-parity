@@ -588,6 +588,144 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     green at every commit boundary (suite count drops only between
     6b's commits, not within them).
 
+- **Phase 7 (planned 2026-05-31 onwards)** — in-repo housekeeping
+  + CI scaffold + runtime optimisation. Everything that is
+  doable WITHOUT modifying `cbdb-desktop-app`, `cbdb-user-mdb-tests`,
+  or filing issues against them. Items requiring upstream changes
+  (Texts/Networks/AssociationPairs services, per-person
+  `lookat<surface>` modules, LEFT JOIN variant of `lookatkinship`,
+  GroupPeopleQueryResult-shaped variant of `lookatgroupdata`,
+  `lookatdynasty`, `lookat_place_options`) are deliberately out
+  of scope per §0.a. GitHub issue filing is also out of scope per
+  user directive.
+
+  Phase 7 is split into eight independent sub-phases. Each ends
+  with `git push` after codex sign-off, mirroring the Phase 5/6
+  cadence.
+
+  - **7a — `coverage/matrix.md` Tier 3/4 explicit out-of-scope
+    marking**: Tier 3 (Access-only export workflows: GIS, Neo4j,
+    UCINet, Pajek, Gephi) and Tier 4 (per-form bulk-IO helpers)
+    are listed for completeness but produce file artefacts rather
+    than diffable result rows. The matrix doesn't currently say
+    that explicitly. Add a one-paragraph header to each tier
+    making clear they are deliberately out of this repo's parity
+    scope. Pure-documentation. Codex review.
+
+  - **7b — `WORK_PLAN.md §9 Open questions` post-Phase-6
+    close-out**: §9 currently ends at planning-era decisions.
+    Add a "Post-Phase-6 status (2026-05-30)" subsection
+    enumerating: (a) what is suppressed in `known_issues.md` and
+    why, (b) what would re-arm each suppression, (c) the
+    suite-count contract (354/6/1). Pure-documentation. Codex
+    review.
+
+  - **7c — `reports/SUMMARY.md` auto-generation hook**:
+    `cbdb_parity.summary_report.write_summary` exists, with
+    unit tests, but `reports/SUMMARY.md` itself is not currently
+    generated. Either (a) wire a `pytest` session-finish hook
+    that runs `write_summary` after every full run, or (b) add a
+    `cbdb-parity-summary` CLI entrypoint and document a
+    pre-commit hook calling it. Recommendation: (b), so the
+    dashboard refresh is explicit and version-controllable.
+    Codex review.
+
+  - **7d — Phase 5c multi-fixture parameterisation**: every
+    `test_phase5c_person_mirror_vs_host.py` case currently uses
+    `person_id=1762` (Wang Anshi). Parameterise with 2–3
+    additional fixtures spanning different dynasties / data
+    densities (e.g. Confucius=1 for very-old / sparse records,
+    a mid-Tang figure, a Ming/Qing figure). Each parametrised
+    case adds rows to the suite count. Catches edge cases the
+    single-fixture run hides (NULL handling, character set
+    edges, empty-list returns). Codex review.
+
+  - **7e — Phase 4 kinships pair multi-fixture with orphan-kin
+    proof case**: the `kinships_basic_person` known issue
+    documents that cbdb_replay's INNER JOIN drops orphan kin
+    while Avalonia's LEFT JOIN keeps them, but the existing
+    pair test (Su Shi / 1762) has no orphan kin so the gap is
+    invisible. Find a fixture with at least one orphan kin
+    (`c_kin_id` not present in BIOG_MAIN) and add a parametrised
+    case that EXPECTS the known-issue divergence — flips from
+    `assert diff.matches` to `assert <documented orphan count>`
+    so the gap has executable evidence rather than just prose.
+    Codex review.
+
+  - **7f — Phase 4 replay_scan kinship extension**:
+    `test_phase4_replay_scan.py` currently scans entry / office
+    / status. After 6a kinships is now §0.b-compliant; extend
+    the scan to also drive `cbdb_replay.lookatkinship` for a
+    handful of seed persons spanning dynasties. Codex review.
+
+  - **7g — GitHub Actions CI workflow**: `.github/` doesn't
+    exist. Add a CI workflow that on `push` and `pull_request`:
+    (1) installs the dev + harness extras (NOT access — pyodbc
+    is Windows-only), (2) runs `pytest --collect-only` to catch
+    import / syntax regressions, (3) runs the non-DB unit tests
+    (`tests/test_summary_report.py`, `tests/test_diff_report.py`
+    etc.), (4) lints `cbdb_parity/` and `parity_host/`.
+    Strictly does not attempt to build the mdb or sqlite (those
+    require Windows ODBC + Datadump access) or to spin up the
+    ParityHost (requires the AVALONIA_REPO clone). Test runs
+    that need the real databases stay local. Codex review.
+
+  - **7h — ParityHost NDJSON daemon mode**: every host call
+    currently does `dotnet run --no-build --project … -- <service>
+    <sqlite-path>`. Cold start is ~1s. With ~60 host calls in
+    the suite that's ~60s of pure subprocess setup per full
+    pytest run. NDJSON daemon mode keeps one host process alive,
+    streams `{service, sqlite_path, request}` JSON frames over
+    stdin one per line, and reads `{response}` or
+    `{error, stack}` frames back over stdout one per line. The
+    one-shot mode stays available for debugging.
+
+    Concretely:
+    - C# side: a new `--daemon` flag puts `Program.Main` into a
+      `while ((line = await Console.In.ReadLineAsync()) != null)`
+      loop; each iteration deserialises a `RequestFrame`, runs
+      the existing dispatch, writes a `ResponseFrame` line.
+    - Python side: `cbdb_parity.parity_host` exposes a new
+      `ParityHostDaemon` context manager that starts the
+      subprocess once, sends/receives one frame per call, and
+      cleans up on `__exit__`. The existing one-shot
+      `invoke_parity_host` keeps its public signature; an opt-in
+      `daemon=` kwarg or a session-level pytest fixture reuses a
+      shared daemon.
+    - Failure semantics: a daemon crash mid-frame surfaces as
+      `ParityHostError("daemon died after N frames")` carrying
+      stderr; the next call gets a fresh subprocess.
+
+    Expected runtime: from ~4 minutes for a full host-using
+    pytest run down to ~30 seconds. Largest single Phase 7 item.
+    Codex review on both the C# main-loop change and the
+    Python wrapper.
+
+  - **Expected suite delta** (additive only — no §0.b
+    regressions): 7d adds ~6–10 parametrised cases, 7e adds 1,
+    7f adds 3–5 replay_scan rows. 7a/7b/7c/7g/7h add no test
+    cases (pure infra/docs).
+
+  - **Out of scope for Phase 7** (per §0.a + user directive
+    2026-05-30):
+    - Asking `cbdb-user-mdb-tests` to add `lookat<surface>`
+      modules for the 12 missing surfaces, the LEFT JOIN
+      kinship variant, the GroupPeopleQueryResult-shaped
+      `lookatgroupdata`, `lookatdynasty`, or
+      `lookat_place_options`.
+    - Asking `cbdb-desktop-app` to add Texts / Networks /
+      AssociationPairs services or to expose
+      `GetPeopleAtPlacesAsync`.
+    - Filing GitHub issues against either repo to track any of
+      the above (excluded by explicit user directive).
+
+  - **Sequencing**: 7a → 7b → 7c → 7d → 7e → 7f → 7g → 7h.
+    Each step ends with codex sign-off + `git push`. 7a/7b/7c
+    are tiny doc-only changes and can be batched if convenient.
+    7d → 7e → 7f all touch tests and stay green throughout. 7g
+    is independent of everything else; 7h is the last and
+    largest.
+
 ## 9. Open questions
 
 **Resolved during planning:**

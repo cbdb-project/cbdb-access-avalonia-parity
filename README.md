@@ -4,17 +4,23 @@ Differential testing harness comparing CBDB Avalonia desktop queries against
 the CBDB Access automated test results, ensuring both stacks return identical
 results when fed from the same Datadump.
 
-> **Scope contract**: this repository is a **detection / parity test
-> harness**. It surfaces and documents Avalonia ↔ Access disagreements
-> via `reports/known_issues.md`; it **MUST NOT modify the upstream
-> Avalonia codebase** (`cbdb-desktop-app`) or any other repository.
-> Even when the parity test makes a bug obvious, the fix belongs to
-> the upstream team that owns that codebase. The right action chain
-> here is: (1) write/run the parity test, (2) record the divergence in
-> `reports/known_issues.md` with a `Suppress until …` clause, (3) let
-> the test skip gracefully until upstream patches. Cross-repo PRs are
-> out of scope for this harness; file them by hand from the upstream
-> repo if needed.
+> **Scope contract** (see `WORK_PLAN.md §0`):
+>
+> **§0.a — No upstream modifications.** This repository is a
+> **detection / parity test harness**. It surfaces and documents
+> Avalonia ↔ Access disagreements via `reports/known_issues.md`; it
+> **MUST NOT modify the upstream Avalonia codebase**
+> (`cbdb-desktop-app`) or any other repository. The right action
+> chain is: (1) write/run the parity test, (2) record the divergence
+> in `reports/known_issues.md` with a `Suppress until …` clause,
+> (3) let the test skip gracefully until upstream patches.
+>
+> **§0.b — No transcription.** This repo never re-implements
+> upstream logic in Python. Avalonia-side tests call
+> `cbdb-desktop-app`'s real services through `Cbdb.App.ParityHost`;
+> Access-side tests call `cbdb-user-mdb-tests`'s
+> `cbdb_replay.lookat*` modules directly. Hand-extracted SQL or
+> hand-ported state machines on either side are forbidden.
 
 ## What this repo does
 
@@ -43,22 +49,22 @@ The harness reuses the differential-testing pattern pioneered in
                 │                      │
                 ▼                      ▼
     ┌───────────────────┐   ┌─────────────────────┐
-    │ build_access_data │   │ build_sqlite (py)   │
-    │  (Datadump→.mdb)  │   │  Python primary,    │
-    │                   │   │  Docker MySQL fall. │
+    │ build_mdb (py)    │   │ build_sqlite (py)   │
+    │  Datadump → mdb   │   │  Datadump → sqlite  │
+    │  (MariaDB cache)  │   │  (MariaDB cache)    │
     └─────────┬─────────┘   └──────────┬──────────┘
               │                        │
               ▼                        ▼
     ┌───────────────────┐   ┌─────────────────────┐
-    │  cbdb_data.mdb +  │   │   cbdb.sqlite       │
-    │  CBDB_BJ_User.mdb │   │ (used by Avalonia)  │
+    │  cbdb_data.mdb    │   │   cbdb.sqlite       │
     └─────────┬─────────┘   └──────────┬──────────┘
               │                        │
               ▼                        ▼
     ┌───────────────────┐   ┌─────────────────────┐
-    │ Access driver     │   │ .NET test host →    │
-    │ (pyodbc / VBA UI  │   │ Cbdb.App.Data       │
-    │  via pywinauto)   │   │ Sqlite*QueryService │
+    │ cbdb_replay.      │   │ Cbdb.App.ParityHost │
+    │ lookat* (Python   │   │ (.NET console →     │
+    │  bridge via       │   │  upstream services  │
+    │  pyodbc + sys.path)│  │  via ProjectRef)    │
     └─────────┬─────────┘   └──────────┬──────────┘
               │                        │
               └──────────┬─────────────┘
@@ -69,11 +75,31 @@ The harness reuses the differential-testing pattern pioneered in
               └─────────────────────┘
 ```
 
+Both arms call **upstream code directly** per `WORK_PLAN.md §0.b`:
+the Avalonia arm invokes `cbdb-desktop-app`'s real
+`Sqlite*QueryService` / `SqlitePersonBrowserService` via the
+ParityHost console (Phase 5); the Access arm invokes
+`cbdb-user-mdb-tests`'s VBA-historical `cbdb_replay.lookat*`
+scripts via Python (Phase 3c/3d/3e + Phase 6a).
+
 ## Repository status
 
-Initial skeleton. Implementation tracked phase-by-phase in `WORK_PLAN.md`
-(English) and `WORK_PLAN.zh-CN.md` (Chinese, authoritative for project
+Phases 1–6 landed (2026-05-27 → 2026-05-30). Current suite:
+**354 passed, 6 skipped, 1 xfailed**. Implementation is tracked
+phase-by-phase in `WORK_PLAN.md` (English) and
+`WORK_PLAN.zh-CN.md` (Chinese, authoritative for project
 decisions made in Chinese).
+
+§0.b-compliant cross-engine pair tests at HEAD:
+- Tier 1: `entry`, `office`, `status` (each via `cbdb_replay.lookat*`).
+- Tier 2: `kinships` (1-hop direct branch via
+  `cbdb_replay.lookatkinship`; Phase 6a rewire).
+
+Avalonia-side correctness for every other PersonBrowser surface is
+gated by `tests/test_phase5c_person_mirror_vs_host.py`, which calls
+the real upstream service through the ParityHost. See
+`reports/known_issues.md` for the surfaces (12 + associations) that
+have no §0.b-compliant Access oracle.
 
 ## Quick start
 

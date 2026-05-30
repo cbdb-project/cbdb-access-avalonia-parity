@@ -1,5 +1,53 @@
 # 工作计划
 
+## 0. 范围契约（必读）
+
+本仓库是**检测 / parity 测试框架**。所有贡献者——人或 agent
+——都受以下两条规则约束。
+
+### 0.a — 不修改其他 repo
+
+- 我们暴露 Avalonia ↔ Access 不一致，在 `reports/known_issues.md`
+  里记录，再由 parity gate 通过 `Suppress until …` 子句跳过。
+- 我们**不修改上游 Avalonia 代码库**（`cbdb-desktop-app`）或
+  任何其他仓库——无论本地还是 push 分支。即便 parity 测试让
+  bug 一目了然，修复工作属于那个代码库的拥有者。
+- 当 parity 测试因为某个已记录的上游 bug 而失败时，处理
+  方式**永远**是：重新装载 auto-skip、链接 `known_issues.md`
+  条目、把问题以 issue 之外的方式交给上游团队。从不在本 repo
+  里给其他 repo 打补丁。
+
+### 0.b — 不转写（2026-05-30 加入）
+
+本 repo 不在 Python 里**重新实现**上游逻辑。每个测试必须直接调用
+**上游代码本身**，而不是它的 Python 等价物。具体说：
+
+- **Avalonia 端**：测试通过 `Cbdb.App.ParityHost` 调用
+  `cbdb-desktop-app` 的真实 service（见 Phase 5）。从
+  `Sqlite*Service.cs` 手抽 SQL 再用 Python `sqlite3` 跑、
+  手 port BFS 状态机、或者其他形式的"在 Python 里模仿 C# 的
+  行为"——Phase 5c-final 之后全部禁止。Phase 3–4 的 mirror
+  层（`cbdb_parity/avalonia_query_sql.py` + `avalonia_*` 的
+  SQL-extract 路径）已经退役。
+- **Access 端**：测试调用 `cbdb-user-mdb-tests` 的
+  `cbdb_replay.lookat*` 模块——这些是用户验证过的查询脚本，
+  构成 Access 端的"真实代码"。
+  `cbdb_parity/access_query.py` / `access_office_query.py` /
+  `access_status_query.py`（Phase 3c/3d/3e）是已经落地的模板。
+  在 `cbdb_parity/access_*.py` 里手写 `_ACCESS_SQL` 字符串
+  来重建 Avalonia 的 join 形状，是 Access 端等价的 mirror-layer
+  转写，同等禁止。
+- **推论**：如果某个 Tier-2 surface 两端都没有"真实代码"
+  可以调用（例如某些 Phase 4 per-person accessor 在
+  `cbdb_replay.lookat*` 下没有对应物），按本规则**就不能**
+  有 Phase 4 pair test。用 Phase 5c 的 mirror-vs-host 检查
+  作为 Avalonia 端的 oracle，并在 `reports/known_issues.md`
+  记录 Access 端的缺口。清理计划见 Phase 6。
+
+陪本 repo 的 `cbdb-desktop-app` 视为**只读引用**。本机对该
+工作树的修改、以及 push 到其任何 remote，都明确不在本 repo
+任何 `/goal` 的范围内。
+
 ## 1. 目标
 在 `cbdb-access-avalonia-parity` 中独立构建一个对比测试框架：对 Avalonia 桌面端（`cbdb-desktop-app`）**每一个**查询功能，都运行一份等价的 Access 查询并 diff 结果。要求：(a) 借鉴 `cbdb-user-mdb-tests` 的测试设计；(b) 两端使用**同一份** Datadump 生成数据，确保差异来自查询逻辑而非数据；(c) 把每个不一致连同根因记录下来。
 
@@ -196,7 +244,294 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
   - ✅ 3d（Office pair）：`cbdb_parity.avalonia_office_query` + `cbdb_parity.access_office_query` + `tests/test_phase3d_office_pair.py`。字段命名对齐 `Cbdb.App.Core.OfficeQueryRecord` snake-case 属性名；C# reader 的 57/64 列序错位通过 `_sql_row_to_record_row` 镜像。Access bridge 拒绝 cbdb_replay/lookatoffice 无法忠实复现的分支（person_keyword / dynasty_ids / 有 place ids 时的 subordinate flags / 空 office_codes），避免误报。Codex v1..v7 干净通过。
   - ✅ 3e（Status pair）：`cbdb_parity.avalonia_status_query` + `cbdb_parity.access_status_query` + `tests/test_phase3e_status_pair.py`。形状同 3d，36 字段，C# reader 列序与 SELECT 一致没有错位。Codex 队列等待用量限制重置。
 
-- **阶段 4（持续）** —— 按查询逐个扩覆盖，每个新查询同时产出 diff 报告与（如不一致）根因记录。目标：Tier 1 形状不匹配的几对（BIOG basic / associations / kinship / GroupData），然后 Access-only 类别（Texts / Networks / AssociationPairs / Place）等 Avalonia 端补齐对应功能。
+- **阶段 4（已完成 2026-05-28）** —— 按查询逐个扩覆盖，每个新
+  查询同时产出 diff 报告与（如不一致）根因记录。目标：Tier 1
+  形状不匹配的几对（BIOG basic / associations / kinship /
+  GroupData），然后 Access-only 类别（Texts / Networks /
+  AssociationPairs / Place）等 Avalonia 端补齐对应功能。
+  落地后 Phase 5 / Phase 6 对 Phase 4 做了重大重构（见下文）。
+
+- **阶段 5（2026-05-29 落地）** —— 转向通过新的
+  `Cbdb.App.ParityHost` 控制台直接调用 .NET Avalonia 执行。
+  之前 Phase 3-4 走 "提取 SQL + Python 重跑" 路径是因为用户
+  机器只有 .NET runtime 没装 SDK。SDK 8.0.421 装上后，可以
+  停止在 Python 里 mirror C# 语义，改为直接调用真实的 C#
+  service。
+
+  - **5a — ParityHost 控制台（住在本 repo 内，不进上游）
+    （✅ 落地 2026-05-29）**：
+    - 项目位置：`parity_host/Cbdb.App.ParityHost/`（`dotnet new
+      console -f net8.0`），**不**进 `cbdb-desktop-app`。
+    - 通过 `$(AvaloniaRepo)` MSBuild 属性走
+      `<ProjectReference>` 引用 `Cbdb.App.Core` /
+      `Cbdb.App.Data`；`AvaloniaRepo` 从环境变量读取。
+    - CLI：`cbdb-parity-host <service> <sqlite-path>` →
+      STDIN 读 JSON request → STDOUT 写 JSON response →
+      STDERR 写 `{error, stack}`。
+    - 编码契约（Windows 上 load-bearing）：双向 UTF-8（无 BOM）。
+
+  - **5b — Python harness 切换（✅ 落地 2026-05-29）**：
+    每个 `cbdb_parity/avalonia_*.py` 加新执行模式
+    `via_parity_host(...)`，subprocess 调用 ParityHost
+    二进制，JSON-serialise request，parse JSON response。
+    原 SQL-extract 路径暂时保留作为 diff 对照。
+
+  - **5c — 退役 Python mirror 层（✅ 落地 2026-05-29）**：
+    via-ParityHost 路径与 mirror 路径证明等价后，删除 SQL
+    extractor + 关联的重写（`_csharp_params_to_sqlite`、
+    `_join_display`、`_to_bool_or_none`、AddrField casefold、
+    NULL sequence → 0 等等）。
+
+  - **5d — kinship expandNetwork=true 互验（✅ 落地
+    2026-05-29，已在 5c-final 阶段退役）**：BFS 状态机
+    （`avalonia_kinships_expanded.py` 中的 ~530 行手 port）
+    与 ParityHost 直接调用做 byte-for-byte 对照，证明等价
+    后整段 port 删除。
+
+  - **5e — 覆盖扩展（✅ 落地 2026-05-29）**：上游已有的
+    lookup/group 接口（DynastyLookup / PlaceLookup /
+    GroupPeople）通过 ParityHost 加 dispatch + Python
+    封装（`cbdb_parity/avalonia_lookups.py`）+ smoke 测试
+    （`tests/test_phase5e_lookups_smoke.py`）。Texts /
+    Networks / AssociationPairs 因为上游还没有 service，
+    按 §0.a 不在本 repo 范围内，等上游落地后再补 host
+    dispatch + Python wrapper + smoke test。
+
+  Phase 5 总账：364 passed, 7 skipped, 1 xfailed（落地时）。
+
+- **阶段 6（2026-05-30 落地）** —— 把 §0.b "不转写" 规则
+  追溯应用到 Phase 4。Phase 5c-final 退役了 Avalonia 端的
+  Python mirror 层，但 Phase 4 在 Access 端留下的手写
+  `_ACCESS_SQL` bridge 仍然违反 §0.b——它们在
+  `cbdb_parity/access_*.py` 里重建 Avalonia 的 join。
+  Phase 6 把 Phase 4 对齐到新规则。
+
+  Access 端的"真实代码"是 `cbdb-user-mdb-tests` 的
+  `cbdb_replay.lookat*` 模块（Phase 3c/3d/3e 通过
+  `cbdb_parity/access_query.py` / `access_office_query.py`
+  / `access_status_query.py` 已经在用，是 Phase 6 每个重写
+  借鉴的模板）。
+
+  - **6a — 改写有 cbdb_replay 对应物的 bridge（✅ 落地
+    2026-05-30）**：实际只有 1 个 surface 合格：
+
+      | surface       | 上游模块                         | 替换的 bridge                      |
+      |---------------|----------------------------------|------------------------------------|
+      | kinships      | `cbdb_replay.lookatkinship`      | `cbdb_parity.access_kinships`      |
+
+    把 `_ACCESS_SQL` + pyodbc 管路换成
+    `_ensure_cbdb_replay_on_path` + `replay_run` + 字段投影
+    模式（模板：`cbdb_parity/access_office_query.py`）。
+
+    **执行中发现（2026-05-30）**：associations 原本也在 6a
+    范围，但
+    `cbdb_replay.lookatassociations.AssocQueryInputs` 没有
+    `person_id` 输入——它的 SQL 是
+    `WHERE c_assoc_code IN (...)`，回答的是"匹配这些
+    assoc_codes 的所有行"，而 Avalonia 的
+    `GetAssociationsAsync(personId)` 回答的是 per-person
+    问题。包装它去回答 per-person 问题需要 Python 侧按
+    `c_personid` 后过滤——这就是 orchestration 端的转写
+    模式，违反 §0.b。associations 因此**降级到 6b**（删除）。
+
+  - **6b — 删除没有 cbdb_replay 对应物的 bridge（✅ 落地
+    2026-05-30）**：13 个 surface——12 个完全没有
+    `cbdb_replay.lookat*` 模块，加上 6a 发现的 associations：
+
+    ```
+    addresses, altnames, associations, biog_basic, detail,
+    entries（per-person），events, institutions,
+    possessions, postings, sources,
+    statuses_person, writings
+    ```
+
+    删除文件清单：每个 surface 对应的
+    `cbdb_parity/access_<surface>.py`、
+    `tests/test_phase4_<surface>_pair.py`、
+    `reports/<surface>_basic_person/`。这些 12 个
+    PersonBrowser 系列 surface 的 Avalonia 端 oracle 由
+    `tests/test_phase5c_person_mirror_vs_host.py` 保留；
+    associations 也在该测试里有
+    `test_associations_mirror_vs_host`。
+
+    `coverage/matrix.md` 同步更新，标记每行"无 Access ground
+    truth；在 `reports/known_issues.md` 的 `tier2_per_person`
+    跟踪"。
+
+  - **6c — Phase 5e pair tests 结构性不可行（✅ 落地
+    2026-05-30）**：原计划用
+    `cbdb_replay.lookatgroupdata` / `cbdb_replay.lookatplace`
+    把 group_people / place_lookup 从 smoke-only 升级为 pair
+    test。检查发现两者都答错了问题：
+
+    - **place_lookup vs lookatplace**：Avalonia 的
+      `GetPlacesAsync` 返回 **place 下拉选项**；
+      `lookatplace.run` 返回 **给定地址处的人**
+      （BIOG_MAIN 按 `c_index_addr_id` 过滤）。
+      不同问题，不同输出形状。
+    - **group_people vs lookatgroupdata**：Avalonia 的
+      `GroupPeopleQueryResult` **只有 5 个 category sub-table**
+      （StatusRecords / OfficeRecords / EntryRecords /
+      TextRecords / AddressRecords），所有 `include_*` 关掉
+      返回 5 个空列表；`lookatgroupdata.run` 在没开 category
+      flag 时返回 **base BIOG_MAIN 记录**，开了任何 flag
+      就抛 NotImplementedError。两端输出形状没有重合。
+    - **dynasty_lookup**：cbdb_replay 完全没有对应模块。
+
+    操作：3 个 Phase 5e surface 全部保持 smoke-only。当前的
+    `tests/test_phase5e_lookups_smoke.py` 就是 §0.b 兼容的
+    底线。
+
+  - **6d — biog_basic keyword 分支覆盖（✅ 落地 2026-05-30）**：
+    在 `tests/test_phase5c_person_mirror_vs_host.py` 加两个
+    host-vs-mirror case 覆盖
+    `SqlitePersonBrowserService.SearchAsync` 的两个非空
+    keyword 分支：
+    - `test_biog_basic_person_id_keyword_mirror_vs_host`：
+      数字 keyword `"1762"` 走
+      `int.TryParse → hasPersonIdKeyword=true`，应只返回王安石。
+    - `test_biog_basic_fuzzy_keyword_mirror_vs_host`：
+      非数字 keyword `"獾郎"`（王安石的别名"獾郎"）走
+      LIKE-across-names + ALTNAME_DATA UNION 分支。该
+      keyword 在所有 10 个 BIOG_MAIN 主名字段中 0 命中，
+      在 ALTNAME_DATA 里命中 1 次。任何非空结果都证明
+      ALTNAME_DATA 那条 UNION arm 跑过了。
+
+    Mirror（`avalonia_biog_basic.biog_basic_query`）经过
+    Phase 5c-final 之后就是一层薄 via_host 封装，两条路径
+    都路由进 ParityHost 调上游真实 SearchAsync——这两个
+    case gate 的是封装的 keyword 透传 + dataclass→JSON
+    序列化，不是任何第二份上游实现。
+
+  Phase 6 总账：354 passed, 6 skipped, 1 xfailed（落地时）。
+  相对 Phase 6 之前的 364 passed，删了 12 个 pass（13 个
+  pair test 中 postings_pair 本来就 skip）、加了 2 个 6d
+  case。这 12-test 的减少是执行 §0.b 的明确代价——那些
+  测试断言的是"我自己手写的 SQL == upstream 的 SQL"，新
+  规则把这归类为伪 oracle。
+
+- **阶段 7（2026-05-31 起规划）** —— 本 repo 内的整理 +
+  CI 骨架 + 运行时优化。所有在**不修改**
+  `cbdb-desktop-app`、`cbdb-user-mdb-tests` 且**不向它们提
+  issue**的前提下还能做的事。需要上游改动的事项（Texts /
+  Networks / AssociationPairs service、per-person
+  `lookat<surface>` 模块、`lookatkinship` 的 LEFT JOIN
+  变体、形状匹配 `GroupPeopleQueryResult` 的
+  `lookatgroupdata` 变体、`lookatdynasty`、
+  `lookat_place_options`）按 §0.a 明确不在范围内。给其他
+  repo 提 issue 也按 2026-05-30 用户指示明确排除。
+
+  Phase 7 拆成八个独立子阶段，每个以 codex sign-off + `git
+  push` 收尾，节奏同 Phase 5/6。
+
+  - **7a — `coverage/matrix.md` Tier 3/4 显式标记
+    out-of-scope**：Tier 3（仅 Access 的导出工作流：GIS、
+    Neo4j、UCINet、Pajek、Gephi）和 Tier 4（每个 form 的
+    bulk-IO helper）当前为完整性列在矩阵里，但它们产出文件
+    而不是可 diff 的行数据。矩阵当前没有明说这一点。给每
+    个 tier 头加一段说明：明确标记**不在本 repo parity 范围
+    内**。纯文档。Codex review。
+
+  - **7b — `WORK_PLAN.md §9 未决问题` Phase 6 收尾段**：§9
+    当前停在规划阶段的决策。加一个 "Post-Phase-6 status
+    (2026-05-30)" 子节列举：(a) `known_issues.md` 里抑制了
+    什么，为什么，(b) 每个抑制条件重新打开需要什么，(c)
+    suite 计数契约（354/6/1）。纯文档。Codex review。
+
+  - **7c — `reports/SUMMARY.md` 自动生成 hook**：
+    `cbdb_parity.summary_report.write_summary` 已经存在，
+    带单元测试，但 `reports/SUMMARY.md` 文件当前没生成。
+    要么 (a) 接一个 pytest session-finish hook，全套跑完
+    后 run `write_summary`；要么 (b) 加一个
+    `cbdb-parity-summary` CLI 入口并文档化 pre-commit hook
+    去调它。推荐 (b)，让 dashboard 刷新动作显式且可版本
+    控制。Codex review。
+
+  - **7d — Phase 5c 多 fixture 参数化**：每个
+    `test_phase5c_person_mirror_vs_host.py` case 当前都用
+    `person_id=1762`（王安石）。加 2–3 个跨朝代 / 数据
+    密度的 fixture（例如孔丘=1 代表非常老 / 数据稀疏、
+    中唐人物一个、明清人物一个）参数化。每个参数化 case
+    给套件加一行。catches 单 fixture 跑漏的边缘 case
+    （NULL 处理、字符集边缘、空列表返回）。Codex review。
+
+  - **7e — Phase 4 kinships pair 多 fixture 加 orphan-kin
+    证明 case**：`kinships_basic_person` known issue 记录
+    了 cbdb_replay 的 INNER JOIN 丢 orphan kin、Avalonia 的
+    LEFT JOIN 保留——但当前 pair test 用的苏轼（1762）没
+    orphan kin 所以差异看不出来。找一个至少有一个 orphan
+    kin（`c_kin_id` 不在 BIOG_MAIN 中）的 fixture，加一个
+    参数化 case 显式**预期**这条 known-issue 差异——把
+    `assert diff.matches` 换成
+    `assert <documented orphan count>`，让缺口有可执行
+    证据而不只是文字说明。Codex review。
+
+  - **7f — Phase 4 replay_scan kinship 扩展**：
+    `test_phase4_replay_scan.py` 当前扫 entry / office /
+    status。6a 之后 kinships 已经 §0.b 兼容；把扫描扩展
+    到也跑跨朝代 seed person 的
+    `cbdb_replay.lookatkinship`。Codex review。
+
+  - **7g — GitHub Actions CI workflow**：`.github/` 不存在。
+    加一个 CI workflow，在 `push` 和 `pull_request` 时：
+    (1) 装 dev + harness extras（**不**装 access —— pyodbc
+    只在 Windows 上），(2) 跑 `pytest --collect-only` 抓
+    import / syntax regressions，(3) 跑非 DB 单元测试
+    （`tests/test_summary_report.py`、`tests/test_diff_report.py`
+    等），(4) lint `cbdb_parity/` 和 `parity_host/`。**不**
+    尝试 build mdb 或 sqlite（要 Windows ODBC + Datadump），
+    **不**尝试 spin up ParityHost（要 AVALONIA_REPO clone）。
+    需要真实 DB 的测试跑留在本地。Codex review。
+
+  - **7h — ParityHost NDJSON daemon 模式**：当前每个 host
+    调用都跑 `dotnet run --no-build --project … -- <service>
+    <sqlite-path>`。冷启动约 1s。套件里 ~60 个 host 调用，
+    一次完整 pytest 跑会有 ~60s 的 subprocess setup 开销。
+    NDJSON daemon 模式让一个 host 进程保持存活，stdin 流
+    式接收每行一帧的 `{service, sqlite_path, request}`
+    JSON 帧，stdout 流式回 `{response}` 或
+    `{error, stack}` 帧（每行一帧）。one-shot 模式作为调试
+    路径保留。
+
+    具体改动：
+    - C# 侧：新 `--daemon` flag 让 `Program.Main` 进入
+      `while ((line = await Console.In.ReadLineAsync()) != null)`
+      循环；每次迭代 deserialise 一个 `RequestFrame`，跑
+      已有 dispatch，写一行 `ResponseFrame`。
+    - Python 侧：`cbdb_parity.parity_host` 新增
+      `ParityHostDaemon` context manager，启动一次
+      subprocess，每个调用收发一帧，`__exit__` 清理。
+      已有的 one-shot `invoke_parity_host` 保留公开签名；
+      新加一个 `daemon=` kwarg 或 session 级 pytest
+      fixture 复用共享 daemon。
+    - 失败语义：mid-frame daemon 崩了走
+      `ParityHostError("daemon died after N frames")`，带
+      stderr；下个 call 重新起 subprocess。
+
+    预期收益：用 host 的完整 pytest 跑从 ~4 分钟降到
+    ~30 秒。Phase 7 最大单项。C# 主循环改动与 Python
+    wrapper 都要 codex review。
+
+  - **预期 suite delta**（纯加，不会有 §0.b regression）：
+    7d 加 ~6–10 个参数化 case，7e 加 1 个，7f 加 3–5 个
+    replay_scan 行。7a/7b/7c/7g/7h 不加测试 case（纯
+    infra/docs）。
+
+  - **Phase 7 不做**（按 §0.a + 2026-05-30 用户指示）：
+    - 请 `cbdb-user-mdb-tests` 加 12 个缺失 surface 的
+      `lookat<surface>`、LEFT JOIN kinship 变体、形状匹配
+      `GroupPeopleQueryResult` 的 `lookatgroupdata`、
+      `lookatdynasty`、`lookat_place_options`。
+    - 请 `cbdb-desktop-app` 加 Texts / Networks /
+      AssociationPairs service 或暴露
+      `GetPeopleAtPlacesAsync`。
+    - 给两个 repo 任一提 GitHub issue 追踪以上事项（用户
+      明确排除）。
+
+  - **顺序**：7a → 7b → 7c → 7d → 7e → 7f → 7g → 7h。
+    每步 codex sign-off + `git push`。7a/7b/7c 是非常小的
+    纯文档改动，方便的话可以打包。7d → 7e → 7f 都改测试且
+    全程保持绿。7g 与其他独立；7h 最后且最大。
 
 ## 9. 未决问题
 
