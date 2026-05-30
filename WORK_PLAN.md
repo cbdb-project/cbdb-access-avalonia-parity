@@ -561,12 +561,17 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     - 0 Phase 5e pair tests added (6c) — was 2; -2 after the 6c
       discovery that neither lookatplace nor lookatgroupdata
       answers the matching Avalonia question.
-    - 1 Phase 5c case added (6d) — pure addition.
+    - 2 Phase 5c cases added (6d) — pure addition: one numeric
+      keyword branch (`int.TryParse(...)` → person_id exact match)
+      and one fuzzy keyword branch (LIKE across name fields +
+      ALTNAME_DATA). Was originally projected as a single case.
 
-    Current floor: 364 passed. Projected: ~352 passed. The 13-test
-    drop is the explicit cost of enforcing §0.b — those tests were
-    asserting "my hand-written SQL == upstream's SQL", which the
-    new rule classifies as a false oracle.
+    Current floor: 364 passed. Actual after Phase 6: 354 passed.
+    The 13-test drop in 6b is the explicit cost of enforcing
+    §0.b — those tests were asserting "my hand-written SQL ==
+    upstream's SQL", which the new rule classifies as a false
+    oracle. Net: -12 (one skip replaced one pass since postings
+    was already skip), +2 from 6d ⇒ 364 − 12 + 2 = 354.
 
   - **Out of scope for Phase 6** (per §0 + §0.b):
     - postings raw-row diff via Python unfolding: would re-create

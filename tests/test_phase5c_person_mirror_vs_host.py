@@ -284,9 +284,9 @@ def test_detail_mirror_vs_host() -> None:
 
 
 def test_biog_basic_mirror_vs_host() -> None:
-    """SqlitePersonBrowserService.SearchAsync — the no-keyword
-    branch (mirror only ports that path today). limit=50 from
-    offset 0 to get a deterministic prefix of BIOG_MAIN.
+    """SqlitePersonBrowserService.SearchAsync — no-keyword branch
+    (corpus-wide BIOG_MAIN prefix). limit=50 from offset 0 to get
+    a deterministic prefix.
     """
     cfg = _load_config_or_skip()
     _prereqs_or_skip(cfg.avalonia_repo)
@@ -309,6 +309,102 @@ def test_biog_basic_mirror_vs_host() -> None:
     )
     assert isinstance(host_rows, list), f"host returned {type(host_rows).__name__}"
     _assert_rows_equal("biog_basic", mirror_rows, host_rows)
+
+
+# Phase 6d keyword coverage. The two non-no-keyword branches of
+# SqlitePersonBrowserService.SearchAsync are distinguished by
+# `int.TryParse(normalized, ...)`:
+#   - numeric keyword → person_id filter (single-row exact match)
+#   - non-numeric    → fuzzy LIKE across name fields + ALTNAME_DATA
+# Phase 6d adds host-vs-mirror coverage for both. The mirror
+# (`avalonia_biog_basic.biog_basic_query`) is a thin via_host
+# wrapper after 5c-final, so this test really gates the wrapper's
+# keyword-passthrough + dataclass-JSON serialisation, not a second
+# upstream implementation.
+
+
+def test_biog_basic_person_id_keyword_mirror_vs_host() -> None:
+    """Numeric keyword → person_id exact match branch.
+
+    `keyword="1762"` (Wang Anshi) lands in
+    `int.TryParse(...) → hasPersonIdKeyword=true` → single-row
+    result by `b.c_personid = $personId`. Verifies (a) the
+    upstream branch is reachable through both the dict path and
+    the dataclass-mirror path, and (b) both produce the same
+    single PersonListItem.
+    """
+    cfg = _load_config_or_skip()
+    _prereqs_or_skip(cfg.avalonia_repo)
+    sqlite_path = cfg.build_output_dir / "cbdb.sqlite"
+    if not sqlite_path.is_file():
+        pytest.skip(f"sqlite not built at {sqlite_path}")
+
+    from cbdb_parity.avalonia_biog_basic import biog_basic_query
+    from cbdb_parity.parity_host import invoke_parity_host
+
+    keyword = "1762"  # Wang Anshi
+    mirror_rows = biog_basic_query(
+        sqlite_path, keyword=keyword, limit=50, offset=0,
+        avalonia_repo=cfg.avalonia_repo,
+    )
+    host_rows = invoke_parity_host(
+        "biog_basic", sqlite_path,
+        {"keyword": keyword, "limit": 50, "offset": 0},
+        avalonia_repo=cfg.avalonia_repo,
+    )
+    assert isinstance(host_rows, list)
+    # `hasPersonIdKeyword` branch returns exactly one row for an
+    # existing person_id.
+    assert len(host_rows) == 1, (
+        f"person_id keyword '{keyword}' should match exactly one "
+        f"BIOG_MAIN row; got {len(host_rows)}"
+    )
+    assert host_rows[0].get("person_id") == 1762
+    _assert_rows_equal("biog_basic (person_id keyword)", mirror_rows, host_rows)
+
+
+def test_biog_basic_fuzzy_keyword_mirror_vs_host() -> None:
+    """Non-numeric keyword → fuzzy LIKE across name columns +
+    ALTNAME_DATA branch.
+
+    Picks a Chinese surname-only fragment ("王安石") so the LIKE
+    match is broad enough to confirm the branch fires but narrow
+    enough that the result set is small and deterministic across
+    builds of the canonical dataset.
+    """
+    cfg = _load_config_or_skip()
+    _prereqs_or_skip(cfg.avalonia_repo)
+    sqlite_path = cfg.build_output_dir / "cbdb.sqlite"
+    if not sqlite_path.is_file():
+        pytest.skip(f"sqlite not built at {sqlite_path}")
+
+    from cbdb_parity.avalonia_biog_basic import biog_basic_query
+    from cbdb_parity.parity_host import invoke_parity_host
+
+    keyword = "王安石"
+    mirror_rows = biog_basic_query(
+        sqlite_path, keyword=keyword, limit=200, offset=0,
+        avalonia_repo=cfg.avalonia_repo,
+    )
+    host_rows = invoke_parity_host(
+        "biog_basic", sqlite_path,
+        {"keyword": keyword, "limit": 200, "offset": 0},
+        avalonia_repo=cfg.avalonia_repo,
+    )
+    assert isinstance(host_rows, list)
+    # Fuzzy match against an exact full name should return at
+    # least the canonical person (Wang Anshi, 1762), and likely a
+    # small number of near-name matches via ALTNAME_DATA.
+    assert len(host_rows) >= 1, (
+        f"fuzzy keyword '{keyword}' returned zero rows; "
+        f"branch is unreachable on this dataset"
+    )
+    person_ids = {r.get("person_id") for r in host_rows}
+    assert 1762 in person_ids, (
+        f"fuzzy keyword '{keyword}' should include Wang Anshi "
+        f"(person_id=1762) among {sorted(person_ids)}"
+    )
+    _assert_rows_equal("biog_basic (fuzzy keyword)", mirror_rows, host_rows)
 
 
 def test_postings_mirror_vs_host() -> None:
