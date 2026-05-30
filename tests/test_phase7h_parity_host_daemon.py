@@ -124,3 +124,32 @@ def test_daemon_invoke_after_close_raises() -> None:
     host = ParityHostDaemon(avalonia_repo=cfg.avalonia_repo)
     with pytest.raises(RuntimeError, match="outside its `with` block"):
         host.invoke("addresses", sqlite_path, {"person_id": 1762})
+
+
+def test_daemon_per_call_timeout_fires(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Codex 7h round flagged that per_call_timeout_seconds was
+    stored but never enforced — a stuck dispatch would hang
+    pytest forever. Force a sub-1s timeout and call into a
+    deliberately-slow service to confirm the helper-thread
+    timeout path raises ParityHostError instead of hanging.
+
+    We can't easily make the host stall on demand, so this test
+    leans on a contrived 0.001s timeout that's smaller than any
+    real round trip. The expected failure mode is the
+    'per-call timeout' branch; we just need to confirm the
+    code path is reachable rather than dead.
+    """
+    cfg = _load_config_or_skip()
+    _prereqs_or_skip(cfg.avalonia_repo)
+    sqlite_path = cfg.build_output_dir / "cbdb.sqlite"
+    if not sqlite_path.is_file():
+        pytest.skip(f"sqlite not built at {sqlite_path}")
+
+    from cbdb_parity.parity_host import ParityHostDaemon, ParityHostError
+
+    with ParityHostDaemon(
+        avalonia_repo=cfg.avalonia_repo,
+        per_call_timeout_seconds=0.001,
+    ) as host:
+        with pytest.raises(ParityHostError, match="per-call timeout"):
+            host.invoke("addresses", sqlite_path, {"person_id": 1762})

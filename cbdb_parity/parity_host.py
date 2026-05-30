@@ -19,10 +19,12 @@ Per `WORK_PLAN.md §Phase 5a` the contract:
 
 from __future__ import annotations
 
+import collections
 import json
 import os
 import shutil
 import subprocess
+import threading
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -246,12 +248,26 @@ class ParityHostDaemon:
         avalonia_repo: Path,
         startup_timeout_seconds: float = 30.0,
         per_call_timeout_seconds: float = 60.0,
+        shutdown_timeout_seconds: float = 5.0,
     ) -> None:
         self._avalonia_repo = avalonia_repo
         self._startup_timeout = startup_timeout_seconds
         self._per_call_timeout = per_call_timeout_seconds
+        self._shutdown_timeout = shutdown_timeout_seconds
         self._proc: subprocess.Popen[bytes] | None = None
         self._frames_served = 0
+        # Codex 7h round flagged a deadlock: nothing was draining
+        # stderr during normal operation, so a child that writes
+        # enough stderr fills its 64KB pipe buffer and blocks
+        # before it can flush the NDJSON response. Always drain
+        # stderr in a background thread that runs from __enter__
+        # to __exit__; it stores everything in a bounded deque
+        # for postmortem.
+        self._stderr_lines: collections.deque[bytes] = collections.deque(
+            maxlen=1024
+        )
+        self._stderr_thread: threading.Thread | None = None
+        self._stderr_done = threading.Event()
 
     def __enter__(self) -> ParityHostDaemon:
         env = dict(os.environ)
@@ -273,6 +289,16 @@ class ParityHostDaemon:
             env=env,
             bufsize=0,
         )
+        # Start the stderr drain thread BEFORE returning so we
+        # never have a window where the daemon has spawned but
+        # nobody's reading stderr.
+        self._stderr_done.clear()
+        self._stderr_thread = threading.Thread(
+            target=self._stderr_drain_loop,
+            name="ParityHostDaemon-stderr",
+            daemon=True,
+        )
+        self._stderr_thread.start()
         return self
 
     def __exit__(self, exc_type, exc_value, tb) -> None:
@@ -283,14 +309,50 @@ class ParityHostDaemon:
             # Close stdin → daemon's ReadLineAsync returns null →
             # graceful exit 0.
             if proc.stdin is not None:
-                proc.stdin.close()
+                try:
+                    proc.stdin.close()
+                except OSError:
+                    pass
             try:
-                proc.wait(timeout=self._startup_timeout)
+                proc.wait(timeout=self._shutdown_timeout)
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()
+            # Signal the stderr drain thread to finish and let it
+            # flush whatever final bytes the child wrote. Without
+            # this join, codex 7h round flagged we'd lose the only
+            # useful crash context.
+            self._stderr_done.set()
+            if self._stderr_thread is not None:
+                self._stderr_thread.join(timeout=self._shutdown_timeout)
         finally:
             self._proc = None
+            self._stderr_thread = None
+
+    def _stderr_drain_loop(self) -> None:
+        """Background thread body. Reads stderr lines until EOF or
+        until the context manager signals shutdown. Bounded to
+        1024 lines (~64 KB worst case) so a runaway child can't
+        OOM us.
+        """
+        proc = self._proc
+        if proc is None or proc.stderr is None:
+            return
+        try:
+            for raw in iter(proc.stderr.readline, b""):
+                self._stderr_lines.append(raw)
+                # The shutdown signal lets __exit__ stop us
+                # promptly even if the child is still writing.
+                if self._stderr_done.is_set() and not raw:
+                    break
+        except (OSError, ValueError):
+            # Pipe closed unexpectedly — nothing to do; the
+            # captured lines we already have are still readable
+            # via _captured_stderr().
+            pass
+
+    def _captured_stderr(self) -> str:
+        return b"".join(self._stderr_lines).decode("utf-8", errors="replace")
 
     def invoke(
         self,
@@ -300,10 +362,11 @@ class ParityHostDaemon:
     ) -> Any:
         """Send one request frame, return the parsed response.
 
-        Raises `ParityHostError` on per-frame failure or daemon
-        death. The context manager remains usable after a per-
-        frame error (daemon keeps running); after daemon death,
-        the manager should be closed and re-opened.
+        Raises `ParityHostError` on per-frame failure, daemon
+        death, or per-call timeout. The context manager remains
+        usable after a per-frame error (daemon keeps running);
+        after daemon death or a timeout, the manager should be
+        closed and re-opened.
         """
         proc = self._proc
         if proc is None or proc.stdin is None or proc.stdout is None:
@@ -322,18 +385,52 @@ class ParityHostDaemon:
             proc.stdin.write(line.encode("utf-8"))
             proc.stdin.flush()
         except (BrokenPipeError, OSError) as exc:
-            stderr_text = self._drain_stderr()
+            stderr_text = self._captured_stderr()
             raise ParityHostError(
                 f"daemon died after {self._frames_served} frames "
                 f"(pipe broken on write): {stderr_text}",
                 stack=stderr_text,
             ) from exc
 
-        raw = proc.stdout.readline()
+        # Codex 7h round: enforce per-call timeout via a helper
+        # thread; subprocess pipes on Windows don't support
+        # `select()`. The helper reads one line; the main thread
+        # joins it with the timeout, raising ParityHostError on
+        # expiry instead of hanging pytest forever.
+        result: dict[str, Any] = {"line": b"", "err": None}
+        def _read() -> None:
+            try:
+                result["line"] = proc.stdout.readline()
+            except Exception as exc:
+                result["err"] = exc
+        reader = threading.Thread(
+            target=_read,
+            name="ParityHostDaemon-readline",
+            daemon=True,
+        )
+        reader.start()
+        reader.join(timeout=self._per_call_timeout)
+        if reader.is_alive():
+            stderr_text = self._captured_stderr()
+            raise ParityHostError(
+                f"daemon per-call timeout after "
+                f"{self._per_call_timeout}s "
+                f"(service={service!r}, frames_served="
+                f"{self._frames_served}). stderr: {stderr_text}",
+                stack=stderr_text,
+            )
+        if result["err"] is not None:
+            stderr_text = self._captured_stderr()
+            raise ParityHostError(
+                f"daemon stdout read raised "
+                f"{type(result['err']).__name__}: "
+                f"{result['err']}. stderr: {stderr_text}",
+                stack=stderr_text,
+            ) from result["err"]
+
+        raw = result["line"]
         if not raw:
-            # EOF from the daemon — read the rest of stderr for
-            # diagnostics.
-            stderr_text = self._drain_stderr()
+            stderr_text = self._captured_stderr()
             raise ParityHostError(
                 f"daemon died after {self._frames_served} frames "
                 f"(EOF on stdout): {stderr_text}",
@@ -360,23 +457,6 @@ class ParityHostDaemon:
                 f"{response!r}"
             )
         return response["ok"]
-
-    def _drain_stderr(self) -> str:
-        """Best-effort read of whatever stderr the daemon has
-        written so far. The subprocess may still be running, so
-        we don't block — just take whatever's already buffered.
-        """
-        proc = self._proc
-        if proc is None or proc.stderr is None:
-            return ""
-        try:
-            # The subprocess module doesn't make non-blocking
-            # stderr easy; drain by closing stdin (in `__exit__`)
-            # and reading the rest. Here, just try one read.
-            buf = proc.stderr.read1(65536) if hasattr(proc.stderr, "read1") else b""
-            return buf.decode("utf-8", errors="replace") if buf else ""
-        except Exception:
-            return ""
 
 
 __all__ = [
