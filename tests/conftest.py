@@ -53,48 +53,79 @@ def fake_env(tmp_path: Path) -> Path:
 
 
 @pytest.fixture(scope="session")
-def parity_host_daemon() -> Iterator[object]:
-    """Phase 8a — session-scoped fixture that starts one
-    `ParityHostDaemon` and binds it as the process-active
-    daemon for the duration of the session. Any test that
-    declares `parity_host_daemon` (directly or transitively)
-    gets every subsequent `invoke_parity_host` /
-    `invoke_person_accessor_via_host` call routed through
-    the daemon's NDJSON loop instead of a per-call
-    `dotnet run` subprocess.
+def _parity_host_session_daemon() -> Iterator[object | None]:
+    """Phase 8a — internal session-scoped fixture. Starts ONE
+    ParityHostDaemon subprocess for the whole pytest session so
+    we only pay the ~1s `dotnet run` cold-start once.
 
-    The fixture skips cleanly when the prereqs that the
-    one-shot Phase 5c tests already check are missing
-    (config not loadable, `.NET SDK` absent, ParityHost DLL
-    not built, sqlite not built). That mirrors the
-    same-test behaviour: tests declaring the fixture skip
-    instead of fail when local infra isn't there.
+    Critically does NOT skip the whole module/session when
+    prereqs are missing — yields `None` instead. The per-test
+    `parity_host_daemon` fixture below decides what to do with
+    a None session daemon (it just yields None too; tests
+    opting into the fixture still run via the legacy one-shot
+    path).
 
-    Yields the daemon for callers that want to use the
-    explicit `daemon.invoke(...)` API; tests that only want
-    the routing don't have to do anything with it.
+    Codex 8a round flagged that an earlier draft of this
+    fixture skipped on missing prereqs at session scope, which
+    caused the `usefixtures("parity_host_daemon")` mark on
+    `test_phase4_replay_scan.py` to skip Access-only entry/
+    office/status cases on machines without ParityHost built —
+    a coverage regression for tests that never needed the host.
+    Yielding None preserves coverage for those cases.
     """
     try:
         from cbdb_parity.config import load_config
     except ImportError:
-        pytest.skip("cbdb_parity.config not importable")
+        yield None
+        return
     try:
         cfg = load_config()
-    except FileNotFoundError as exc:
-        pytest.skip(f"config not configured: {exc}")
+    except FileNotFoundError:
+        yield None
+        return
 
     if not (shutil.which("dotnet") or Path(r"C:\Program Files\dotnet\dotnet.exe").is_file()):
-        pytest.skip(".NET SDK not installed")
+        yield None
+        return
     repo_root = Path(__file__).resolve().parent.parent
     host_dll = (
         repo_root / "parity_host" / "Cbdb.App.ParityHost"
         / "bin" / "Debug" / "net8.0" / "cbdb-parity-host.dll"
     )
     if not host_dll.is_file():
-        pytest.skip("ParityHost DLL not built")
+        yield None
+        return
 
-    from cbdb_parity.parity_host import ParityHostDaemon, bind_active_daemon
+    from cbdb_parity.parity_host import ParityHostDaemon
 
     with ParityHostDaemon(avalonia_repo=cfg.avalonia_repo) as daemon:
-        with bind_active_daemon(daemon):
-            yield daemon
+        yield daemon
+
+
+@pytest.fixture(scope="function")
+def parity_host_daemon(_parity_host_session_daemon: object | None) -> Iterator[object | None]:
+    """Phase 8a — per-test binding of the session daemon to the
+    process-active `_active_daemon` ContextVar. Codex 8a round
+    flagged that a session-scope binding stayed set in the main
+    pytest context for the entire run, which:
+      - leaks the daemon to subsequent tests that don't declare
+        the fixture (order-dependent behaviour);
+      - amplifies a single host crash into a session-wide
+        cascade.
+
+    Function-scope binding fixes both: every test that opts in
+    gets the daemon bound on entry and reset on exit, so a test
+    not declaring this fixture never sees a stale binding.
+
+    When the session daemon is None (prereqs missing — e.g. on a
+    machine without ParityHost built), yields None and skips the
+    binding. Tests that opted in via `usefixtures` still run;
+    `invoke_parity_host` falls back to the legacy one-shot path,
+    which is also what an out-of-bind call would do.
+    """
+    if _parity_host_session_daemon is None:
+        yield None
+        return
+    from cbdb_parity.parity_host import bind_active_daemon
+    with bind_active_daemon(_parity_host_session_daemon):
+        yield _parity_host_session_daemon

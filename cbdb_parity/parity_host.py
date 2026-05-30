@@ -171,7 +171,31 @@ def invoke_parity_host(
     """
     daemon = _active_daemon.get()
     if daemon is not None:
-        return daemon.invoke(service, sqlite_path, request)
+        # Codex 8a round flagged a cascade hazard: a bound but
+        # dead daemon would convert one host failure into a
+        # session-wide outage. The per-test binding in
+        # tests/conftest.py limits the blast radius to one
+        # test, but we also want the failure message to make
+        # the recovery path obvious. ParityHostError already
+        # carries "daemon died after N frames" + stderr in
+        # the relevant code paths; just annotate that this
+        # is a fall-out from a bound-daemon failure so the
+        # operator knows to re-run pytest (which spawns a
+        # fresh session daemon) or strip the
+        # `usefixtures("parity_host_daemon")` mark from the
+        # offending module.
+        try:
+            return daemon.invoke(service, sqlite_path, request)
+        except ParityHostError as exc:
+            if "daemon died" in str(exc):
+                raise ParityHostError(
+                    f"{exc} — the session-bound daemon is no longer "
+                    f"serving. Re-run pytest to spawn a fresh one, or "
+                    f"drop the `parity_host_daemon` fixture from the "
+                    f"offending module to fall back to one-shot mode.",
+                    stack=getattr(exc, "stack", None),
+                ) from exc
+            raise
 
     payload = json.dumps(_to_jsonable(request), ensure_ascii=False).encode("utf-8")
 

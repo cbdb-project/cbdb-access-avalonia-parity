@@ -569,8 +569,13 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
       集中注入点；replay_scan 侧的 kinship 分支直接调
       bridge，需要把 daemon 透传进去。
 
-    验收：Phase 7 close 时大约 4 分钟的完整
-    `pytest tests/` 在同一台机器上跑到 ≤90 秒。Codex review。
+    验收（8a codex round 期间细化）：**host-using 子集**
+    （test_phase5c_person_mirror_vs_host + test_phase4_replay_scan
+    kinship 分支 + test_phase7h）降到 ≤90 秒。Phase 5c 文件
+    单独从 ~70 秒降到 ≤30 秒（-60%+）。完整 suite 时间会变
+    短但主要由非 host 测试（构建流水线、mariadb、lint
+    setup 等）决定，所以"≤90 秒完整 suite"目标过于乐观，
+    8a codex round 期间撤回。Codex 审最终实现，不只是 plan。
 
   - **8b — 过时文案 + 代码注释扫除**。Phase 7 收尾审计
     发现六处带有跨 phase 边界过时引用的位置：

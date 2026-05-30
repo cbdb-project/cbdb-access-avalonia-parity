@@ -769,9 +769,15 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
       side the kinship branch already calls the bridge
       directly and just needs the daemon threaded through.
 
-    Acceptance criterion: a full `pytest tests/` run that hit
-    ~4m at Phase 7 close drops to ≤90s on the same machine.
-    Codex review.
+    Acceptance criterion (refined during 8a codex round): the
+    **host-using subset** (test_phase5c_person_mirror_vs_host
+    + test_phase4_replay_scan kinship branches + test_phase7h)
+    drops to ≤90s. The 5c file alone goes from ~70s to ≤30s
+    (-60%+). Whole-suite runtime improves but is dominated by
+    the non-host portion (build pipeline, mariadb, lint setup,
+    etc.) so a ≤90s full-suite target would be over-ambitious
+    and was walked back during 8a's codex review. Codex review
+    of the actual final implementation, not just the plan.
 
   - **8b — Stale prose and code-comment sweep**. The
     post-Phase-7 audit found six locations with stale
