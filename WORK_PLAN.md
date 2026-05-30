@@ -466,10 +466,10 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     surfaces that never had a cbdb_replay analogue.
 
   - **6b — delete the bridges that have NO cbdb_replay analogue
-    for the per-person question**. Twelve surfaces (eleven without
-    any `cbdb_replay.lookat*` module + associations whose
-    `lookatassociations` answers a structurally different question
-    per the 6a discovery):
+    for the per-person question**. Thirteen surfaces — twelve
+    without any `cbdb_replay.lookat*` module, plus associations
+    whose `lookatassociations` answers a structurally different
+    question per the 6a discovery:
 
     ```
     addresses, altnames, associations, biog_basic, detail,
@@ -480,8 +480,11 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
 
     Their `cbdb_parity/access_<surface>.py` modules and the
     matching `tests/test_phase4_<surface>_pair.py` files come out.
-    The Avalonia-side oracle for these 11 surfaces is preserved by
-    `tests/test_phase5c_person_mirror_vs_host.py`, which is unaffected.
+    The Avalonia-side oracle for the 12 PersonBrowser-style surfaces
+    in this list is preserved by
+    `tests/test_phase5c_person_mirror_vs_host.py`, which is
+    unaffected. The 13th surface (associations) is also covered
+    there as `test_associations_mirror_vs_host`.
 
     Files to remove (13 + 13; postings counts in here even though
     its bridge was already a stub; associations was relocated from

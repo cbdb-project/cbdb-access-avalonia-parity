@@ -356,12 +356,12 @@ AND the scope cbdb_replay does NOT yet cover):
   `tier2_per_person` group; Phase 6b removes the bridge and the
   pair test in the same commit batch.
 
-### tier2_per_person — 11 surfaces have no Access ground truth (added 2026-05-30)
+### tier2_per_person — 12 surfaces have no Access ground truth (added 2026-05-30)
 
 - **First observed**: 2026-05-30
 - **Side**: Access (gap)
 - **Class**: Access-side missing-oracle (structural)
-- **Description**: Eleven Phase 4 Tier-2 per-person accessors lack
+- **Description**: Twelve Phase 4 Tier-2 per-person accessors lack
   any `cbdb_replay.lookat*` module in `cbdb-user-mdb-tests`:
 
   ```
@@ -372,7 +372,13 @@ AND the scope cbdb_replay does NOT yet cover):
 
   cbdb_replay has `lookat{entry, office, status, kinship,
   associations, associationpairs, place, networks, groupdata,
-  texts}` only — none of the eleven above. Phase 4 pair tests
+  texts}` only — none of the twelve above.
+  `associations` is a separate case: a module exists, but its
+  inputs have no `person_id`, so it answers a structurally
+  different question (see the
+  `associations_basic_person` entry above). It is included in
+  Phase 6b deletion alongside the twelve listed here, bringing
+  the total to 13. Phase 4 pair tests
   currently use hand-written `_ACCESS_SQL` strings in
   `cbdb_parity/access_*.py` to recreate Avalonia's join shape,
   which is exactly the transcription pattern that WORK_PLAN §0.b
@@ -385,8 +391,9 @@ AND the scope cbdb_replay does NOT yet cover):
   surfaces.
 - **Coverage that REMAINS**: Phase 5c mirror-vs-host
   (`tests/test_phase5c_person_mirror_vs_host.py`) exercises the
-  real upstream C# service for every one of these 11 surfaces, so
-  the "Avalonia side produces the right output" half of the parity
+  real upstream C# service for every one of these 12 surfaces
+  (plus associations from the separate entry above), so the
+  "Avalonia side produces the right output" half of the parity
   question is still gated.
 - **Coverage that is LOST**: the "Access engine and Avalonia
   engine agree row-by-row on this per-person surface" cross-engine
@@ -394,7 +401,7 @@ AND the scope cbdb_replay does NOT yet cover):
   comparison (hand-written SQL vs upstream SQL) and its retention
   conflicted with §0.b.
 - **Suppress rationale**: per §0.b, the only acceptable Access-side
-  test invocation is `cbdb_replay.lookat*`. The eleven surfaces
+  test invocation is `cbdb_replay.lookat*`. The twelve surfaces
   have no such module, so the Phase 4 pair tests must come down
   pending an upstream `cbdb-user-mdb-tests` commit that adds them.
 - **Suppress until**: `cbdb-user-mdb-tests` adds a `lookat<surface>`
