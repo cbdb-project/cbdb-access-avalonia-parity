@@ -736,10 +736,12 @@ BIOG basic、kinship recursive、associations 当时有形状不匹配，需要�
     在最终合并完的 edit 上跑 codex review（en + zh-CN
     一批合并审，这种纯文档子阶段可以这样做）。
 
-  - **预期 suite delta**：Phase 8 加 **0** 个新通过的
-    case。8a 是运行时变化，8b/8c/8d 是文档 / 本地清理。
-    锚定 Phase 7 close 的 388/7/1 契约在 Phase 8 之后
-    仍然是 canonical 数字。
+  - **落地后的 suite delta**：Phase 8 加 **0** 个新通过的
+    case。8a 是运行时变化（对 count 中性），8b/8c/8d 是
+    文档 / 本地清理。387/7/1 契约（即 Phase 8 审计把
+    Phase 7 close 从 388 修正到 387 之后的数字）是 Phase
+    8 之后的 canonical suite size——每个 sub-phase 的算术
+    见 §9 Post-Phase-9 status 块。
 
   - **Phase 8 不做**（按 §0.a + 2026-05-30 用户指示）：
     - 同 Phase 7 排除项——不改 upstream，不给任何

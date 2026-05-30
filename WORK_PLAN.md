@@ -962,8 +962,10 @@ BIOG basic, kinship recursive, and associations had shape mismatches that requir
     - Refresh `README.md` "Repository status" — "Phases 1–6
       landed (2026-05-27 → 2026-05-30). Current suite: 354
       passed, 6 skipped, 1 xfailed." becomes "Phases 1–7
-      landed (2026-05-27 → 2026-05-30). Current suite: 388
-      passed, 7 skipped, 1 xfailed." Mention `ParityHostDaemon`
+      landed (2026-05-27 → 2026-05-30). Current suite: 387
+      passed, 7 skipped, 1 xfailed." (Phase 8d's draft cited
+      388; the Phase 8 audit corrected it to 387 before the
+      README edit landed.) Mention `ParityHostDaemon`
       availability in the architecture diagram explanation.
     - Mirror all of the above into `WORK_PLAN.zh-CN.md`
       verbatim — § 0 split, every Phase 7 sub-phase ✅
@@ -977,11 +979,13 @@ BIOG basic, kinship recursive, and associations had shape mismatches that requir
     in one batch is fine for this purely-documentary
     sub-phase).
 
-  - **Expected suite delta**: Phase 8 adds **zero** new
-    passing tests. 8a is a runtime change, 8b/8c/8d are
-    docs/local-cleanup. The 388/7/1 contract anchored at
-    Phase 7 close stands as the canonical numbers after
-    Phase 8.
+  - **Suite delta as landed**: Phase 8 added **zero** new
+    passing tests. 8a was a runtime change (net-neutral on
+    the count), 8b/8c/8d were docs/local-cleanup. The
+    387/7/1 contract (the Phase 7 close numbers after the
+    Phase 8 audit's 388→387 correction) is the canonical
+    suite size after Phase 8 — see the §9 Post-Phase-9
+    status block for the per-sub-phase arithmetic.
 
   - **Out of scope for Phase 8** (per §0.a + 2026-05-30
     user directive):
