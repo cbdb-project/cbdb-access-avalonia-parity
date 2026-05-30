@@ -1,73 +1,118 @@
-"""Access-side bridge for Phase 4 / Tier 2 kinships accessor (non-expanded)."""
+"""Access-side bridge for the Phase 4 kinships pair test.
+
+Phase 6a — rewritten to call `cbdb_replay.lookatkinship.run` directly,
+in line with WORK_PLAN §0.b ("no transcription"). The previous
+hand-written `_ACCESS_SQL` block that recreated Avalonia's joins is
+gone; we now drive the same VBA-historical replay script that
+`cbdb-user-mdb-tests` validates against the Access UI.
+
+Template: `cbdb_parity/access_office_query.py` (Phase 3d).
+
+Scope: cbdb_replay's `LookAtKinship` is the DIRECT-relationship
+subset only (1-hop). Multi-hop traversal would raise
+`NotImplementedError` upstream, so this bridge never asks for it —
+the matching Avalonia call is also `expandNetwork=false`.
+
+Cross-section: the comparable columns are limited to what BOTH
+backends emit RAW (no transcription of upstream formatting). That
+excludes the `kinship` joined label (Avalonia's
+`JoinDisplay(c_kinrel_chn, c_kinrel)`), as well as `source` /
+`pages` / `notes` which cbdb_replay doesn't fetch. The Avalonia
+side still emits those fields; we just don't compare them here.
+"""
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 from typing import Any
 
-from cbdb_parity.avalonia_altnames import _join_display
+
+def _ensure_cbdb_replay_on_path(access_tests_repo: Path) -> None:
+    """Mirror of `cbdb_parity.access_query._ensure_cbdb_replay_on_path`."""
+    tests_dir = access_tests_repo / "tests"
+    tests_dir_str = str(tests_dir)
+    if tests_dir_str not in sys.path:
+        sys.path.insert(0, tests_dir_str)
 
 
-_ACCESS_SQL = """
-SELECT
-    kd.c_kin_id,
-    kc.c_kinrel_simplified,
-    kc.c_kinrel_chn,
-    kc.c_kinrel,
-    kin.c_name_chn,
-    kin.c_name,
-    kc.c_upstep,
-    kc.c_dwnstep,
-    kc.c_marstep,
-    kc.c_colstep,
-    src.c_title_chn,
-    src.c_title,
-    kd.c_pages,
-    kd.c_notes,
-    kd.c_kin_code
-FROM ((KIN_DATA kd
-      LEFT JOIN KINSHIP_CODES kc ON kc.c_kincode = kd.c_kin_code)
-      LEFT JOIN BIOG_MAIN kin ON kin.c_personid = kd.c_kin_id)
-      LEFT JOIN TEXT_CODES src ON src.c_textid = kd.c_source
-WHERE kd.c_personid = ?
-ORDER BY kd.c_kin_id, kd.c_kin_code
-""".strip()
+# Avalonia PersonKinshipItem snake_case field → cbdb_replay/lookatkinship
+# SELECT column. Limited to the columns BOTH sides emit raw — no
+# JoinDisplay, no TEXT_CODES title lookup. The Avalonia side still
+# emits source/pages/notes/kinship; they just don't participate in
+# this cross-section.
+#
+# `kin_code` is here because Avalonia's mirror splices it back onto
+# each row (see `cbdb_parity.avalonia_kinships._SPLICE_SQL`); it is a
+# stable diff key.
+_COMMON_FIELDS_AVALONIA_TO_REPLAY: dict[str, str] = {
+    "kin_person_id":   "c_kin_id",
+    "kin_name_chn":    "c_kin_chn",
+    "kin_name":        "c_kin_name",
+    "up_step":         "c_upstep",
+    "down_step":       "c_dwnstep",
+    "marriage_step":   "c_marstep",
+    "collateral_step": "c_colstep",
+    "kin_code":        "c_kin_code",
+}
+
+
+def kinships_common_fields() -> tuple[str, ...]:
+    """Avalonia field names of the columns this bridge can compare."""
+    return tuple(_COMMON_FIELDS_AVALONIA_TO_REPLAY.keys())
+
+
+def _replay_row_to_avalonia_shape(replay_row: dict[str, Any]) -> dict[str, Any]:
+    """Project a cbdb_replay/lookatkinship row dict onto Avalonia field
+    names. Pure pass-through except for pandas-NaN → Python-None
+    normalisation (the office bridge needs the same coercion — pandas
+    `to_dict('records')` surfaces SQL NULL as float NaN, which would
+    diverge from the sqlite3 None that Avalonia rows carry).
+    """
+    import math
+
+    out: dict[str, Any] = {}
+    for av_field, replay_col in _COMMON_FIELDS_AVALONIA_TO_REPLAY.items():
+        value = replay_row.get(replay_col)
+        if isinstance(value, float) and math.isnan(value):
+            value = None
+        # kin_person_id is `int NOT NULL` in upstream PersonKinshipItem
+        # (Avalonia's reader coerces NULL → 0). cbdb_replay's INNER JOIN
+        # on BIOG_MAIN_1 means a NULL kin_id can't reach this code path,
+        # so a pass-through int is correct; no `or 0` fallback needed.
+        out[av_field] = value
+    return out
 
 
 def kinships_query_access(
     mdb_path: Path,
     person_id: int,
+    *,
+    access_tests_repo: Path,
 ) -> list[dict[str, Any]]:
+    """Run `cbdb_replay.lookatkinship.run` and project to Avalonia shape."""
+    _ensure_cbdb_replay_on_path(access_tests_repo)
     import pyodbc
+    from cbdb_replay.lookatkinship import KinshipQueryInputs, run as replay_run
 
     conn_str = (
         r"DRIVER={Microsoft Access Driver (*.mdb, *.accdb)};"
         rf"DBQ={mdb_path};"
     )
-    rows: list[dict[str, Any]] = []
-    with pyodbc.connect(conn_str) as conn:
-        cur = conn.cursor()
-        cur.execute(_ACCESS_SQL, person_id)
-        for r in cur.fetchall():
-            (kin_pid, _kin_simplified, kin_chn, kin_en,
-             kin_name_chn, kin_name, up, down, mar, col,
-             src_chn, src_en, pages, notes, kin_code) = r
-            rows.append({
-                "kin_person_id":   kin_pid if kin_pid is not None else 0,
-                "kinship":         _join_display(kin_chn, kin_en),
-                "kin_name_chn":    kin_name_chn,
-                "kin_name":        kin_name,
-                "up_step":         up,
-                "down_step":       down,
-                "marriage_step":   mar,
-                "collateral_step": col,
-                "source":          _join_display(src_chn, src_en),
-                "pages":           pages,
-                "notes":           notes,
-                "kin_code":        kin_code,
-            })
-        cur.close()
-    return rows
+    inputs = KinshipQueryInputs(person_id=person_id)
+    # pyodbc context exit commits but does not close — explicit close
+    # to avoid leaking ODBC handles (codex round-13 P2 on office_query).
+    conn = pyodbc.connect(conn_str)
+    try:
+        df = replay_run(conn, inputs)
+    finally:
+        conn.close()
+
+    rows = df.to_dict("records") if not df.empty else []
+    return [_replay_row_to_avalonia_shape(r) for r in rows]
 
 
-__all__ = ["kinships_query_access"]
+__all__ = [
+    "kinships_common_fields",
+    "kinships_query_access",
+]

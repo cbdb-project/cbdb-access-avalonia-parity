@@ -91,8 +91,11 @@ def test_kinships_pair_smoke_end_to_end(tmp_path: Path) -> None:
     except ImportError:
         pytest.skip("pyodbc not installed")
 
-    from cbdb_parity.access_kinships import kinships_query_access
-    from cbdb_parity.avalonia_kinships import kinships_field_names, kinships_query
+    from cbdb_parity.access_kinships import (
+        kinships_common_fields,
+        kinships_query_access,
+    )
+    from cbdb_parity.avalonia_kinships import kinships_query
     from cbdb_parity.diff_report import diff_rows, write_report
 
     person_id = 1762
@@ -103,13 +106,19 @@ def test_kinships_pair_smoke_end_to_end(tmp_path: Path) -> None:
         person_id,
         avalonia_data_dir=avalonia_data,
     )
-    access_rows = kinships_query_access(mdb_path, person_id)
+    access_rows = kinships_query_access(
+        mdb_path, person_id, access_tests_repo=cfg.access_tests_repo,
+    )
 
+    # Per WORK_PLAN §0.b: only diff on raw columns both backends emit
+    # without transcribed formatting. Excludes `kinship` (Avalonia's
+    # JoinDisplay output), `source` / `pages` / `notes` (cbdb_replay
+    # doesn't fetch them).
     diff = diff_rows(
         avalonia_rows,
         access_rows,
         key_fields=("kin_person_id", "kin_code"),
-        compare_fields=kinships_field_names(),
+        compare_fields=kinships_common_fields(),
     )
 
     reports_dir = Path.cwd() / "reports"
