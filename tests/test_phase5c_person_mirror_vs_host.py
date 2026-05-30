@@ -364,13 +364,20 @@ def test_biog_basic_person_id_keyword_mirror_vs_host() -> None:
 
 
 def test_biog_basic_fuzzy_keyword_mirror_vs_host() -> None:
-    """Non-numeric keyword → fuzzy LIKE across name columns +
-    ALTNAME_DATA branch.
+    """Non-numeric keyword → fuzzy LIKE across BIOG_MAIN name
+    columns UNION ALTNAME_DATA name columns.
 
-    Picks a Chinese surname-only fragment ("王安石") so the LIKE
-    match is broad enough to confirm the branch fires but narrow
-    enough that the result set is small and deterministic across
-    builds of the canonical dataset.
+    Codex round on the first cut pointed out that a keyword that
+    hits BIOG_MAIN.c_name_chn directly (e.g. "王安石") would not
+    actually prove the ALTNAME_DATA arm fires: a regression that
+    drops the UNION clause could still pass. We use "獾郎"
+    instead — one of Wang Anshi's alt-names (沪 sobriquet
+    "Huanlang") — verified at fixture-build time to:
+      - have ZERO matches in any BIOG_MAIN primary name column,
+      - and exactly ONE match in ALTNAME_DATA (Wang Anshi only).
+    Any non-empty result therefore exercises the ALTNAME_DATA arm
+    specifically. A regression that drops the UNION makes this
+    test report 0 rows and fail.
     """
     cfg = _load_config_or_skip()
     _prereqs_or_skip(cfg.avalonia_repo)
@@ -381,7 +388,7 @@ def test_biog_basic_fuzzy_keyword_mirror_vs_host() -> None:
     from cbdb_parity.avalonia_biog_basic import biog_basic_query
     from cbdb_parity.parity_host import invoke_parity_host
 
-    keyword = "王安石"
+    keyword = "獾郎"
     mirror_rows = biog_basic_query(
         sqlite_path, keyword=keyword, limit=200, offset=0,
         avalonia_repo=cfg.avalonia_repo,
@@ -392,19 +399,16 @@ def test_biog_basic_fuzzy_keyword_mirror_vs_host() -> None:
         avalonia_repo=cfg.avalonia_repo,
     )
     assert isinstance(host_rows, list)
-    # Fuzzy match against an exact full name should return at
-    # least the canonical person (Wang Anshi, 1762), and likely a
-    # small number of near-name matches via ALTNAME_DATA.
-    assert len(host_rows) >= 1, (
-        f"fuzzy keyword '{keyword}' returned zero rows; "
-        f"branch is unreachable on this dataset"
+    assert len(host_rows) == 1, (
+        f"alt-name-only keyword '{keyword}' should match exactly "
+        f"one person via ALTNAME_DATA; got {len(host_rows)} — the "
+        f"UNION arm of SearchAsync may be broken or unreachable."
     )
-    person_ids = {r.get("person_id") for r in host_rows}
-    assert 1762 in person_ids, (
-        f"fuzzy keyword '{keyword}' should include Wang Anshi "
-        f"(person_id=1762) among {sorted(person_ids)}"
+    assert host_rows[0].get("person_id") == 1762, (
+        f"alt-name-only keyword '{keyword}' should resolve to "
+        f"Wang Anshi (1762); got {host_rows[0].get('person_id')}"
     )
-    _assert_rows_equal("biog_basic (fuzzy keyword)", mirror_rows, host_rows)
+    _assert_rows_equal("biog_basic (alt-name keyword)", mirror_rows, host_rows)
 
 
 def test_postings_mirror_vs_host() -> None:
