@@ -275,11 +275,31 @@ def _translate_kinship_to_avalonia(replay_inputs: Any):
     and our case payload is already `{"person_id": <int>}`. The
     "Avalonia request" for this scan branch is the same dict —
     the dispatch below reads `person_id` out of it directly.
+
+    Codex 7f round flagged that the previous version accepted any
+    truthy `person_id` value (str, bool, ...), letting corrupted
+    payloads slip past the contract boundary. The check now
+    enforces (a) dict shape, (b) `person_id` key present, (c) the
+    value is a non-bool int. `bool` is rejected explicitly
+    because `bool` is a subclass of `int` in Python — `True ==
+    1`, but `{"person_id": True}` is almost certainly a data
+    corruption, not "the harness wants kin of person 1".
     """
-    if not isinstance(replay_inputs, dict) or "person_id" not in replay_inputs:
+    if not isinstance(replay_inputs, dict):
         return None, (
-            "kinship case payload must be {'person_id': int}; got "
+            "kinship case payload must be a dict; got "
             f"{type(replay_inputs).__name__}"
+        )
+    if "person_id" not in replay_inputs:
+        return None, (
+            "kinship case payload missing 'person_id' key; got keys "
+            f"{sorted(replay_inputs)}"
+        )
+    person_id = replay_inputs["person_id"]
+    if isinstance(person_id, bool) or not isinstance(person_id, int):
+        return None, (
+            "kinship case payload 'person_id' must be int; got "
+            f"{type(person_id).__name__} ({person_id!r})"
         )
     return replay_inputs, None
 
@@ -441,12 +461,33 @@ def test_replay_scan(
             from cbdb_parity.access_kinships import (
                 kinships_common_fields, kinships_query_access,
             )
-            person_id = int(avalonia_request["person_id"])
+            person_id = avalonia_request["person_id"]  # already int per translator check
             avalonia_rows = kinships_query(
                 sqlite_path, person_id, avalonia_data_dir=avalonia_data,
             )
             access_rows = kinships_query_access(
                 mdb_path, person_id, access_tests_repo=cfg.access_tests_repo,
+            )
+            # Codex 7f round: empty-vs-empty would trivially pass
+            # without exercising either backend. Every kinship seed
+            # in this scan was verified non-empty at fixture-design
+            # time (10, 23, 29 rows for Li Bai / Fan Zhongyan /
+            # Zhu Xi); fail loudly if a future dump no longer
+            # populates them, so the regression surfaces rather
+            # than being silently masked.
+            assert len(avalonia_rows) > 0, (
+                f"[kinship/{case_id}] Avalonia returned zero kin rows "
+                f"for person_id={person_id}. The seed used to have "
+                f"≥1 row on the canonical dataset; either the dump "
+                f"stopped populating KIN_DATA for this person, or "
+                f"the request shape is wrong."
+            )
+            assert len(access_rows) > 0, (
+                f"[kinship/{case_id}] cbdb_replay returned zero kin rows "
+                f"for person_id={person_id}. The seed used to have "
+                f"≥1 row on the canonical dataset; either the dump "
+                f"stopped populating KIN_DATA for this person, or "
+                f"the cbdb_replay query shape changed."
             )
             key_fields = ("kin_person_id", "kin_code")
             compare_fields = kinships_common_fields()
