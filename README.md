@@ -84,11 +84,21 @@ scripts via Python (Phase 3c/3d/3e + Phase 6a).
 
 ## Repository status
 
-Phases 1–6 landed (2026-05-27 → 2026-05-30). Current suite:
-**354 passed, 6 skipped, 1 xfailed**. Implementation is tracked
+Phases 1–8 landed (2026-05-27 → 2026-05-31). Current suite:
+**387 passed, 7 skipped, 1 xfailed**. Implementation is tracked
 phase-by-phase in `WORK_PLAN.md` (English) and
 `WORK_PLAN.zh-CN.md` (Chinese, authoritative for project
-decisions made in Chinese).
+decisions made in Chinese). Both `WORK_PLAN.md §9` and
+`WORK_PLAN.zh-CN.md §9` carry a Post-Phase-7 status block
+enumerating the active suppressions and their re-arm
+conditions.
+
+ParityHost runs in two modes (Phase 7h + Phase 8a binding):
+one-shot via `dotnet run` for ad-hoc callers, and a
+long-lived NDJSON daemon that the
+`parity_host_daemon` pytest fixture binds for the whole
+session — the host-using subset of the suite drops from
+~150s to ~61s under the binding.
 
 §0.b-compliant cross-engine pair tests at HEAD:
 - Tier 1: `entry`, `office`, `status` (each via `cbdb_replay.lookat*`).

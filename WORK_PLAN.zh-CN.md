@@ -424,7 +424,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
   Phase 7 拆成八个独立子阶段，每个以 codex sign-off + `git
   push` 收尾，节奏同 Phase 5/6。
 
-  - **7a — `coverage/matrix.md` Tier 3/4 显式标记
+  - **7a (✅ 落地 2026-05-31) — `coverage/matrix.md` Tier 3/4 显式标记
     out-of-scope**：Tier 3（仅 Access 的导出工作流：GIS、
     Neo4j、UCINet、Pajek、Gephi）和 Tier 4（每个 form 的
     bulk-IO helper）当前为完整性列在矩阵里，但它们产出文件
@@ -432,13 +432,13 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     个 tier 头加一段说明：明确标记**不在本 repo parity 范围
     内**。纯文档。Codex review。
 
-  - **7b — `WORK_PLAN.md §9 未决问题` Phase 6 收尾段**：§9
+  - **7b (✅ 落地 2026-05-31) — `WORK_PLAN.md §9 未决问题` Phase 6 收尾段**：§9
     当前停在规划阶段的决策。加一个 "Post-Phase-6 status
     (2026-05-30)" 子节列举：(a) `known_issues.md` 里抑制了
     什么，为什么，(b) 每个抑制条件重新打开需要什么，(c)
     suite 计数契约（354/6/1）。纯文档。Codex review。
 
-  - **7c — `reports/SUMMARY.md` 自动生成 hook**：
+  - **7c (✅ 落地 2026-05-31) — `reports/SUMMARY.md` 自动生成 hook**：
     `cbdb_parity.summary_report.write_summary` 已经存在，
     带单元测试，但 `reports/SUMMARY.md` 文件当前没生成。
     要么 (a) 接一个 pytest session-finish hook，全套跑完
@@ -447,7 +447,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     去调它。推荐 (b)，让 dashboard 刷新动作显式且可版本
     控制。Codex review。
 
-  - **7d — Phase 5c 多 fixture 参数化**：每个
+  - **7d (✅ 落地 2026-05-31) — Phase 5c 多 fixture 参数化**：每个
     `test_phase5c_person_mirror_vs_host.py` case 当前都用
     `person_id=1762`（王安石）。加 2–3 个跨朝代 / 数据
     密度的 fixture（例如孔丘=1 代表非常老 / 数据稀疏、
@@ -455,7 +455,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     给套件加一行。catches 单 fixture 跑漏的边缘 case
     （NULL 处理、字符集边缘、空列表返回）。Codex review。
 
-  - **7e — Phase 4 kinships pair 多 fixture 加 orphan-kin
+  - **7e (✅ 落地 2026-05-31) — Phase 4 kinships pair 多 fixture 加 orphan-kin
     证明 case**：`kinships_basic_person` known issue 记录
     了 cbdb_replay 的 INNER JOIN 丢 orphan kin、Avalonia 的
     LEFT JOIN 保留——但当前 pair test 用的苏轼（1762）没
@@ -466,13 +466,13 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     `assert <documented orphan count>`，让缺口有可执行
     证据而不只是文字说明。Codex review。
 
-  - **7f — Phase 4 replay_scan kinship 扩展**：
+  - **7f (✅ 落地 2026-05-31) — Phase 4 replay_scan kinship 扩展**：
     `test_phase4_replay_scan.py` 当前扫 entry / office /
     status。6a 之后 kinships 已经 §0.b 兼容；把扫描扩展
     到也跑跨朝代 seed person 的
     `cbdb_replay.lookatkinship`。Codex review。
 
-  - **7g — GitHub Actions CI workflow**：`.github/` 不存在。
+  - **7g (✅ 落地 2026-05-31) — GitHub Actions CI workflow**：`.github/` 不存在。
     加一个 CI workflow，在 `push` 和 `pull_request` 时：
     (1) 装 dev + harness extras（**不**装 access —— pyodbc
     只在 Windows 上），(2) 跑 `pytest --collect-only` 抓
@@ -483,7 +483,7 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
     **不**尝试 spin up ParityHost（要 AVALONIA_REPO clone）。
     需要真实 DB 的测试跑留在本地。Codex review。
 
-  - **7h — ParityHost NDJSON daemon 模式**：当前每个 host
+  - **7h (✅ 落地 2026-05-31) — ParityHost NDJSON daemon 模式**：当前每个 host
     调用都跑 `dotnet run --no-build --project … -- <service>
     <sqlite-path>`。冷启动约 1s。套件里 ~60 个 host 调用，
     一次完整 pytest 跑会有 ~60s 的 subprocess setup 开销。
@@ -692,4 +692,61 @@ BIOG basic、kinship recursive、associations 有形状不匹配，需要在 Pha
 - ✅ **Codex CLI 调用默认参数**：`codex --dangerously-bypass-approvals-and-sandbox -c model=gpt-5.4 -c model_reasoning_effort=medium review --uncommitted --title "..."`。在本机 Windows 上，codex 默认 sandbox 会 `spawn setup refresh` 报错把所有 shell 命令屏蔽掉，所以需要 dangerous-bypass；`gpt-5.4` + `medium` 是 per-section gate 的基线，保证多轮 review 之间的发现可比。详见 `AGENTS.md`，以及在什么场景下需要偏离这套默认（如 CI 机器、有特别微妙不变量的环节）。
 - ✅ **空 mdb 起步（1.3b）**：用 `pypyodbc.win_create_mdb()` —— 实测一行调用生成 172 KB 空 mdb。**不用** `pyodbc`（不存在文件直接报错）、**不用** ADOX/`win32com`（重）、**不用**在 repo 里 commit 模板（不可复现）。`pypyodbc` 加进 `[access]` extra 依赖，只用这一个函数；其他所有 mdb 操作继续走 `pyodbc`。
 - ✅ **MariaDB 中间缓存（Phase 1.6）**：Phase 1.3b 在真实 Datadump 上撞到 Jet 的两个硬伤（2 GB 事务 buffer 上限、PK-on-duplicates `IntegrityError 23000`）后，确定把 MariaDB 中间层作为 sqlite_builder + mdb_builder 的**默认** import source。该缓存层**不**违反 §1 严格流水线规则禁止使用本机已有 user mdb 的条款 —— 它由我们自己从 Datadump 灌出来，靠 in-DB SHA provenance 行做缓存校验。Phase 1.6 之前的 `cbdb_parity.mysqldump` 直链路径保留为非 Docker 主机的 fallback (`source='datadump'`)。**本条决策与前文 "连续三轮 codex → Docker MySQL 兜底" 的触发条件是互补的**，不是替代 —— 那一条仍然约束 **SQLite builder 内部** Python 端口 vs Docker MySQL 的选择。
+
+### Post-Phase-7 status (2026-05-31)
+
+Phase 8d 收尾。Phase 7 在八个 commit 内落地（每个 + codex
+round + push），Phase 7 收尾审计又带出 Phase 8 的八个项目
+收完整体框架。Phase 8 关闭后，suite-count 契约变为：
+
+- **387 passed**（Phase 6 close 时是 354；Phase 7
+  7a/7c/7d/7e/7f/7h 净加了 33，Phase 8 又 -1 因为 7h
+  那个专用 daemon 测试现在通过 session binding 跑，
+  不再自己起 ParityHostDaemon）。
+- **7 skipped**——都有文档：
+  - 3 个 `replay_scan[entry/…_indexyears/_entryyears]`
+    case，Avalonia EntryQueryRequest 无法表达
+    `addr_field='person'`（上游 Avalonia 缺口；
+    见 `coverage/matrix.md` Tier 1 第 2 行）。
+  - `replay_scan[status/empty_codes]` 和
+    `replay_scan[office/empty_codes]`（cbdb_replay picker
+    契约对空 filter 返回零行，而 Avalonia 不带过滤跑；
+    bridge 无法同时满足两种语义）。
+  - `test_phase5c_person_mirror_vs_host::test_postings_mirror_vs_host`
+    （5c-final 之后 postings mirror 是 `NotImplementedError`；
+    嵌套 PersonPostingItem wire format 与 raw-row diff 不兼容）。
+  - `test_phase4_kinships_pair::test_kinships_pair_orphan_kin_documented_divergence`
+    （canonical 2026-04-30 Datadump 上 KIN_DATA 0 个 orphan；
+    任何未来出现 orphan 的 dump 会自动 arm）。
+- **1 xfailed**——`replay_scan[entry/all_jinshi_general_song]`，
+  cbdb_replay 返回 ~40k 行而 Avalonia 截 10000 行没有对齐
+  ORDER BY；语义对齐（dynasty-filter probe 已验证），
+  只是行集不重合。
+
+这些数字锚定到 Phase 8 close（8d 自己落地的 commit）。后续
+任何动这些数字的改动都要把 delta 写到 commit message 里。
+
+Phase 8 还兑现了 Phase 7h daemon 的运行时收益：host-using
+子集（Phase 5c + replay_scan kinship + 7h 本身）在 daemon
+bind 下从 ~150 秒降到 ~61 秒。完整 `pytest tests/` 大约
+~222 秒——剩下的成本是 daemon 改不了的非 host 部分
+（构建流水线、mariadb cache、lint setup）。
+
+**已抑制的活跃条目（再次确认 re-arm 条件）：**
+
+| 条目 | re-arm 条件 |
+|---|---|
+| `kinships_basic_person` (INNER vs LEFT JOIN orphan-kin gap) | `cbdb-user-mdb-tests` 加 LEFT JOIN 变体 LookAtKinship；或 parity request 显式排除 orphan-kin fixture。Phase 7e 加了 executable assertion 锚定当前缺口形状。 |
+| `associations_basic_person` (lookatassociations 没有 person_id) | `cbdb-user-mdb-tests` 加 LookAtAssociations 的 per-person 变体。 |
+| `phase5e_lookups` (group_people / place_lookup / dynasty_lookup 都没有 §0.b 兼容 pair) | 对称：`cbdb-user-mdb-tests` 加合适 `lookat*` 模块，或 `cbdb-desktop-app` 收敛到现有 cbdb_replay 形状。 |
+| `tier2_per_person` (12 个 surface 没 cbdb_replay.lookat*) | `cbdb-user-mdb-tests` 加 per-surface `lookat<surface>` 模块。Phase 6b 已完成本 repo 侧清理。 |
+| `avalonia_gap (legacy)` Texts/Networks/AssociationPairs/Place | 每个 surface 独立 clear，对应 service 在 cbdb-desktop-app 落地。umbrella 一直挂到四个都到位。 |
+
+所有以上 re-arm 条件都需要改动其他 repo，按 §0.a 不在本
+repo 范围内，按 2026-05-30 用户指示也不开 issue 去请求。
+所以这些 suppression 等上游独立行动。
+
+Phase 8 关闭后 repo 真正进入稳态：本 repo 内没有待办；
+下一次变化要么是下游使用者把过时 suppression 清理掉，要
+么是上游 commit 让某条之前 skip 的 test 重新 arm。
 - ✅ **LICENSE**：Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International（CC BY-NC-SA 4.0）。

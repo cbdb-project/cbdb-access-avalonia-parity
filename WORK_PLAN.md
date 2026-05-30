@@ -603,7 +603,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
   with `git push` after codex sign-off, mirroring the Phase 5/6
   cadence.
 
-  - **7a — `coverage/matrix.md` Tier 3/4 explicit out-of-scope
+  - **7a (✅ landed 2026-05-31) — `coverage/matrix.md` Tier 3/4 explicit out-of-scope
     marking**: Tier 3 (Access-only export workflows: GIS, Neo4j,
     UCINet, Pajek, Gephi) and Tier 4 (per-form bulk-IO helpers)
     are listed for completeness but produce file artefacts rather
@@ -612,7 +612,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     making clear they are deliberately out of this repo's parity
     scope. Pure-documentation. Codex review.
 
-  - **7b — `WORK_PLAN.md §9 Open questions` post-Phase-6
+  - **7b (✅ landed 2026-05-31) — `WORK_PLAN.md §9 Open questions` post-Phase-6
     close-out**: §9 currently ends at planning-era decisions.
     Add a "Post-Phase-6 status (2026-05-30)" subsection
     enumerating: (a) what is suppressed in `known_issues.md` and
@@ -620,7 +620,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     suite-count contract (354/6/1). Pure-documentation. Codex
     review.
 
-  - **7c — `reports/SUMMARY.md` auto-generation hook**:
+  - **7c (✅ landed 2026-05-31) — `reports/SUMMARY.md` auto-generation hook**:
     `cbdb_parity.summary_report.write_summary` exists, with
     unit tests, but `reports/SUMMARY.md` itself is not currently
     generated. Either (a) wire a `pytest` session-finish hook
@@ -630,7 +630,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     dashboard refresh is explicit and version-controllable.
     Codex review.
 
-  - **7d — Phase 5c multi-fixture parameterisation**: every
+  - **7d (✅ landed 2026-05-31) — Phase 5c multi-fixture parameterisation**: every
     `test_phase5c_person_mirror_vs_host.py` case currently uses
     `person_id=1762` (Wang Anshi). Parameterise with 2–3
     additional fixtures spanning different dynasties / data
@@ -640,7 +640,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     single-fixture run hides (NULL handling, character set
     edges, empty-list returns). Codex review.
 
-  - **7e — Phase 4 kinships pair multi-fixture with orphan-kin
+  - **7e (✅ landed 2026-05-31) — Phase 4 kinships pair multi-fixture with orphan-kin
     proof case**: the `kinships_basic_person` known issue
     documents that cbdb_replay's INNER JOIN drops orphan kin
     while Avalonia's LEFT JOIN keeps them, but the existing
@@ -652,13 +652,13 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     so the gap has executable evidence rather than just prose.
     Codex review.
 
-  - **7f — Phase 4 replay_scan kinship extension**:
+  - **7f (✅ landed 2026-05-31) — Phase 4 replay_scan kinship extension**:
     `test_phase4_replay_scan.py` currently scans entry / office
     / status. After 6a kinships is now §0.b-compliant; extend
     the scan to also drive `cbdb_replay.lookatkinship` for a
     handful of seed persons spanning dynasties. Codex review.
 
-  - **7g — GitHub Actions CI workflow**: `.github/` doesn't
+  - **7g (✅ landed 2026-05-31) — GitHub Actions CI workflow**: `.github/` doesn't
     exist. Add a CI workflow that on `push` and `pull_request`:
     (1) installs the dev + harness extras (NOT access — pyodbc
     is Windows-only), (2) runs `pytest --collect-only` to catch
@@ -670,7 +670,7 @@ BIOG basic, kinship recursive, and associations have shape mismatches that need 
     ParityHost (requires the AVALONIA_REPO clone). Test runs
     that need the real databases stay local. Codex review.
 
-  - **7h — ParityHost NDJSON daemon mode**: every host call
+  - **7h (✅ landed 2026-05-31) — ParityHost NDJSON daemon mode**: every host call
     currently does `dotnet run --no-build --project … -- <service>
     <sqlite-path>`. Cold start is ~1s. With ~60 host calls in
     the suite that's ~60s of pure subprocess setup per full
@@ -982,3 +982,55 @@ in this repo:**
 Phase 7 is the complete in-repo backlog. Once it ends the repo
 is in a steady-state pending upstream action on the suppressed
 entries above.
+
+### Post-Phase-7 status (2026-05-31)
+
+Phase 8d close-out. Phase 7 landed in eight commits (each with
+a codex round + push), and the post-Phase-7 audit surfaced
+eight Phase 8 items that wrapped up housekeeping. With Phase 8
+closed, the suite-count contract becomes:
+
+- **387 passed** (was 354 at Phase 6 close; +33 net additions
+  across Phase 7a/7c/7d/7e/7f/7h, and -1 because the
+  Phase 7h dedicated daemon test now shares the session
+  binding rather than spawning its own).
+- **7 skipped** — all documented:
+  - 3 `replay_scan[entry/…_indexyears/_entryyears]` cases
+    where Avalonia EntryQueryRequest can't model
+    `addr_field='person'` (upstream Avalonia gap;
+    `coverage/matrix.md` Tier 1 row 2).
+  - `replay_scan[status/empty_codes]` and
+    `replay_scan[office/empty_codes]` (cbdb_replay picker
+    contract returns no rows on an empty filter while
+    Avalonia runs unfiltered; bridge can't replay both).
+  - `test_phase5c_person_mirror_vs_host::test_postings_mirror_vs_host`
+    (postings mirror is `NotImplementedError` post-5c-final;
+    nested PersonPostingItem wire format incompatible with
+    raw-row diff).
+  - `test_phase4_kinships_pair::test_kinships_pair_orphan_kin_documented_divergence`
+    (canonical 2026-04-30 Datadump has zero orphan kin;
+    arms on any future dump that has one).
+- **1 xfailed** — `replay_scan[entry/all_jinshi_general_song]`
+  where cbdb_replay returns ~40k rows and Avalonia caps at
+  10000 with no aligned ORDER BY; the semantics are aligned
+  (verified by the dynasty-filter probe), the row sets just
+  don't overlap.
+
+These numbers anchor at the Phase 8 close (commit will land
+once 8d itself ships). Any subsequent change that moves them
+should record the delta in its commit message.
+
+Phase 8 also actualised the Phase 7h daemon runtime win: the
+host-using test subset (Phase 5c + replay_scan kinship + 7h
+itself) drops from ~150s to ~61s with the
+`parity_host_daemon` fixture active. The full
+`pytest tests/` runtime is ~222s — the remaining cost is
+non-host work (build pipeline, mariadb cache, lint setup)
+that the daemon can't speed up.
+
+After Phase 8 closes the repo is in a true steady-state
+pending upstream action on every documented suppression. No
+further in-repo work is queued; the next change should arrive
+either as a downstream consumer clearing an obsolete
+suppression or as an upstream commit re-arming a previously
+skipped test.
